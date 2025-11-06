@@ -58,6 +58,10 @@ public class FileStorageService {
         return !activeTokens.isEmpty();
     }
     
+    public Map<String, String> getActiveTokens() {
+        return new java.util.HashMap<>(activeTokens);
+    }
+    
     private Path getUserDir(String telegramId) {
         Path dir = Paths.get(baseDir, telegramId);
         try {

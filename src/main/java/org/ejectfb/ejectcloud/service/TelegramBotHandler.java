@@ -4,6 +4,11 @@ import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.UpdatesListener;
 import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.request.SendMessage;
+import com.pengrad.telegrambot.request.DeleteMessage;
+import com.pengrad.telegrambot.request.SetMyCommands;
+import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
+import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
+import com.pengrad.telegrambot.model.BotCommand;
 import org.ejectfb.ejectcloud.model.UserData;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -41,10 +46,18 @@ public class TelegramBotHandler {
         if (botToken == null || botToken.isEmpty()) return;
         
         bot = new TelegramBot(botToken);
+        
+        BotCommand[] commands = {
+            new BotCommand("link", "📱 Войти в UI")
+        };
+        bot.execute(new SetMyCommands(commands));
+        
         bot.setUpdatesListener(updates -> {
             for (Update update : updates) {
                 if (update.message() != null && update.message().text() != null) {
                     handleMessage(update);
+                } else if (update.callbackQuery() != null) {
+                    handleCallback(update);
                 }
             }
             return UpdatesListener.CONFIRMED_UPDATES_ALL;
@@ -55,9 +68,12 @@ public class TelegramBotHandler {
         String chatId = String.valueOf(update.message().chat().id());
         String text = update.message().text();
         String username = update.message().from().username();
-        
+
         if (chatId.equals(adminChatId)) {
-            if (text.startsWith("/")) {
+            if (text.equals("/link")) {
+                handleLinkRequest(chatId);
+                deleteMessageDelayed(chatId, update.message().messageId());
+            } else if (text.startsWith("/")) {
                 handleAdminCommand(chatId, text);
             } else {
                 sendMessage(chatId, "Команды админа:\n/approve <chat_id> - одобрить пользователя\n/stats - статистика\n/link - ваша ссылка на UI");
@@ -69,7 +85,20 @@ public class TelegramBotHandler {
             handleUserRequest(chatId, username);
         } else if (text.equals("/link")) {
             handleLinkRequest(chatId);
+            deleteMessageDelayed(chatId, update.message().messageId());
+        } else {
         }
+    }
+    
+    private void deleteMessageDelayed(String chatId, int messageId) {
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000);
+                bot.execute(new DeleteMessage(chatId, messageId));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
     }
     
     private void handleUserRequest(String chatId, String username) {
@@ -84,28 +113,41 @@ public class TelegramBotHandler {
                     "Новая заявка на доступ:\n" +
                     "Username: " + (username != null ? username : "не указан") + "\n" +
                     "Chat ID: " + chatId + "\n\n" +
-                    "Для одобрения: /approve " + chatId);
+                    "Для одобрения: /approve_" + chatId);
             }
         }
     }
     
     private void handleLinkRequest(String chatId) {
-        // Админ получает ссылку сразу
         if (chatId.equals(adminChatId)) {
             String token = storageService.createToken(chatId);
             String loginLink = baseUrl + "/?token=" + token;
-            sendMessage(chatId, "Админ-панель: " + loginLink);
+            
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
+                new InlineKeyboardButton[]{new InlineKeyboardButton("Закончить сессию").callbackData("close:" + chatId)}
+            );
+            
+            SendMessage message = new SendMessage(chatId, "Админ-панель: " + loginLink)
+                .replyMarkup(keyboard);
+            var response = bot.execute(message);
         } else if (storageService.userExists(chatId)) {
             String token = storageService.createToken(chatId);
             String loginLink = baseUrl + "/?token=" + token;
-            sendMessage(chatId, "Ваша ссылка для входа: " + loginLink);
+            
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
+                new InlineKeyboardButton[]{new InlineKeyboardButton("Закончить сессию").callbackData("close:" + chatId)}
+            );
+            
+            SendMessage message = new SendMessage(chatId, "Ваша ссылка для входа: " + loginLink)
+                .replyMarkup(keyboard);
+            var response = bot.execute(message);
         } else {
             sendMessage(chatId, "У вас нет доступа. Отправьте /start для запроса доступа.");
         }
     }
     
     private void handleAdminCommand(String chatId, String text) {
-        if (text.startsWith("/approve ")) {
+        if (text.startsWith("/approve_")) {
             String targetChatId = text.substring(9).trim();
             String username = pendingRegistrations.get(targetChatId);
             if (username != null) {
@@ -115,7 +157,10 @@ public class TelegramBotHandler {
                     String loginLink = baseUrl + "/?token=" + token;
                     
                     sendMessage(chatId, "Пользователь " + targetChatId + " одобрен");
-                    sendMessage(targetChatId, "Доступ одобрен! Ваша ссылка: " + loginLink + "\n\nДля получения новых ссылок используйте /link");
+                    
+                    // Очищаем чат и отправляем простое сообщение
+                    clearChatAndSendWelcome(targetChatId);
+                    
                     pendingRegistrations.remove(targetChatId);
                 } catch (Exception e) {
                     sendMessage(chatId, "Ошибка: " + e.getMessage());
@@ -126,7 +171,14 @@ public class TelegramBotHandler {
         } else if (text.equals("/link")) {
             String token = storageService.createToken(chatId);
             String loginLink = baseUrl + "/?token=" + token;
-            sendMessage(chatId, "Админ-панель: " + loginLink);
+            
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
+                new InlineKeyboardButton[]{new InlineKeyboardButton("Закончить сессию").callbackData("close_session:" + token)}
+            );
+            
+            SendMessage message = new SendMessage(chatId, "Админ-панель: " + loginLink)
+                .replyMarkup(keyboard);
+            bot.execute(message);
         } else if (text.equals("/stats")) {
             try {
                 int userCount = 0;
@@ -147,6 +199,35 @@ public class TelegramBotHandler {
                 sendMessage(chatId, "Ошибка получения статистики");
             }
         }
+    }
+    
+    private void handleCallback(Update update) {
+        String callbackData = update.callbackQuery().data();
+        String chatId = String.valueOf(update.callbackQuery().from().id());
+        int messageId = update.callbackQuery().message().messageId();
+        
+        if (callbackData.startsWith("close:")) {
+            String targetChatId = callbackData.substring(6);
+            // Удаляем все токены для этого пользователя
+            removeAllTokensForUser(targetChatId);
+            
+            bot.execute(new DeleteMessage(chatId, messageId));
+        }
+    }
+    
+    private void removeAllTokensForUser(String chatId) {
+        java.util.List<String> tokensToRemove = new java.util.ArrayList<>();
+        storageService.getActiveTokens().forEach((token, tokenChatId) -> {
+            if (tokenChatId.equals(chatId)) {
+                tokensToRemove.add(token);
+            }
+        });
+        tokensToRemove.forEach(storageService::removeToken);
+    }
+    
+    private void clearChatAndSendWelcome(String chatId) {
+        // Отправляем простое сообщение о доступе
+        sendMessage(chatId, "Доступ одобрен! Используйте кнопку 'Войти в UI' в меню.");
     }
     
     public void sendMessage(String chatId, String text) {

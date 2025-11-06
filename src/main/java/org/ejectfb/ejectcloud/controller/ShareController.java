@@ -20,20 +20,15 @@ public class ShareController {
 
     @GetMapping("/{shareId}")
     public ResponseEntity<?> downloadShared(@PathVariable String shareId) {
-        System.out.println("Share request for ID: " + shareId);
-        
+
         FileData fileData = storageService.getFileByShare(shareId);
         if (fileData == null) {
-            System.out.println("File data not found for share ID: " + shareId);
             return ResponseEntity.notFound().build();
         }
 
-        System.out.println("Found file: " + fileData.getFilename() + " for user: " + fileData.getTelegramId());
         Path filePath = storageService.getFilePath(fileData.getTelegramId(), fileData.getId());
-        System.out.println("File path: " + filePath);
-        
+
         if (!java.nio.file.Files.exists(filePath)) {
-            System.out.println("File does not exist at path: " + filePath);
             return ResponseEntity.notFound().build();
         }
 
@@ -45,7 +40,6 @@ public class ShareController {
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
                     .body(resource);
         } catch (IOException e) {
-            System.out.println("Error reading file: " + e.getMessage());
             return ResponseEntity.status(500).body("Cannot read file");
         }
     }

@@ -573,14 +573,12 @@
         .catch(e => alert('Ошибка: ' + e.message));
     };
 
-    window.logout = function() {
-        fetch(`/auth/logout?token=${encodeURIComponent(token)}`, { method:'POST' }).finally(()=>{
-            localStorage.removeItem('eject_token');
-            token = null;
-            showLogin();
-            alert('Сессия завершена. Получите новую ссылку через /link в боте.');
-        });
-    };
+    function logout() {
+        localStorage.removeItem('eject_token');
+        token = null;
+        showLogin();
+        alert('Сессия завершена. Получите новую ссылку через /link в боте.');
+    }
 
     function showTrash() {
         $currentPath.textContent = currentPath ? `🗑️ Корзина / ${currentPath}` : '🗑️ Корзина';
