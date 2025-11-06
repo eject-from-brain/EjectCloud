@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>EjectCloud</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .hidden { display: none; }
+        
+        #login {
+            max-width: 500px;
+            margin: 100px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #f5f5f5;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .toolbar {
+            padding: 10px;
+            background: #fff;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .file-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .tree-item {
+            padding: 5px 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .tree-item:hover {
+            background: #e0e0e0;
+        }
+        
+        .tree-item.selected {
+            background: #007acc;
+            color: white;
+        }
+        
+        .tree-item.folder::before {
+            content: "📁 ";
+        }
+        
+        .tree-item.root::before {
+            content: "🏠 ";
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f5f5f5;
+            font-weight: bold;
+        }
+        
+        tr:hover {
+            background: #f9f9f9;
+        }
+        
+        button {
+            padding: 8px 16px;
+            border: 1px solid #ccc;
+            background: #fff;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background: #f0f0f0;
+        }
+        
+        .status {
+            padding: 10px;
+            background: #f9f9f9;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+        }
+        
+        #timer {
+            font-weight: bold;
+            color: #007acc;
+        }
+    </style>
+</head>
+<body>
+
+<div id="login">
+    <h2>EjectCloud</h2>
+    <p>Для доступа к файловому хранилищу получите ссылку через Telegram бота.</p>
+    <p>Отправьте боту команду <code>/link</code> для получения персональной ссылки.</p>
+</div>
+
+<div id="app" class="hidden">
+    <div class="sidebar">
+        <div style="padding: 10px; font-weight: bold; border-bottom: 1px solid #ddd;">
+            Хранилище
+        </div>
+        <div id="fileTree"></div>
+    </div>
+    
+    <div class="main-content">
+        <div class="toolbar">
+            <button onclick="uploadFiles()">📁 Добавить файлы</button>
+            <button onclick="createFolder()">📂 Создать папку</button>
+            
+            <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 200px; height: 20px; background: #f0f0f0; border-radius: 10px; overflow: hidden;">
+                        <div id="quotaProgress" style="height: 100%; background: linear-gradient(90deg, #28a745, #ffc107, #dc3545); transition: width 0.3s;"></div>
+                    </div>
+                    <span id="quotaText" style="font-size: 12px; white-space: nowrap;"></span>
+                </div>
+                
+                <span>
+                    Пользователь: <span id="who"></span> | 
+                    Сессия: <span id="timer"></span>
+                </span>
+                
+                <button onclick="logout()">Выйти</button>
+            </div>
+        </div>
+        
+        <div class="file-area">
+            <div id="currentPath" style="margin-bottom: 15px; font-weight: bold;"></div>
+            <table id="filesTable">
+                <thead>
+                    <tr>
+                        <th>Имя</th>
+                        <th>Размер</th>
+                        <th>Дата</th>
+                        <th>Ссылка</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="fileInput" multiple style="display: none;">
+
+<script src="app.js"></script>
+</body>
+</html>
