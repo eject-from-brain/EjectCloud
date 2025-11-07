@@ -62,6 +62,23 @@ public class FileStorageService {
         return new java.util.HashMap<>(activeTokens);
     }
     
+    public Map<String, Instant> getTokenActivity() {
+        return new java.util.HashMap<>(tokenActivity);
+    }
+    
+    public void cleanupInactiveTokens(Duration inactivityThreshold) {
+        Instant cutoff = Instant.now().minus(inactivityThreshold);
+        List<String> tokensToRemove = new ArrayList<>();
+        
+        tokenActivity.forEach((token, lastActivity) -> {
+            if (lastActivity.isBefore(cutoff)) {
+                tokensToRemove.add(token);
+            }
+        });
+        
+        tokensToRemove.forEach(this::removeToken);
+    }
+    
     private Path getUserDir(String telegramId) {
         Path dir = Paths.get(baseDir, telegramId);
         try {
@@ -87,7 +104,7 @@ public class FileStorageService {
         }
     }
     
-    private void saveUserData(String telegramId, UserData userData) {
+    public void saveUserData(String telegramId, UserData userData) {
         Path userFile = getUserDir(telegramId).resolve("user.xml");
         try {
             JAXBContext context = JAXBContext.newInstance(UserData.class);
@@ -591,6 +608,47 @@ public class FileStorageService {
         return newFilename;
     }
     
+    public void moveFile(String telegramId, String fileId, String targetFolder) throws IOException {
+        Path sourcePath = getUserDir(telegramId).resolve("data").resolve(fileId);
+        if (!Files.exists(sourcePath)) {
+            throw new IllegalStateException("Файл не найден");
+        }
+        
+        String fileName = sourcePath.getFileName().toString();
+        Path targetDir = getUserDir(telegramId).resolve("data");
+        
+        if (targetFolder != null && !targetFolder.isEmpty() && !targetFolder.equals("/")) {
+            targetDir = targetDir.resolve(targetFolder);
+            if (!Files.exists(targetDir)) {
+                throw new IllegalStateException("Целевая папка не найдена");
+            }
+        }
+        
+        Path targetPath = targetDir.resolve(fileName);
+        
+        // Проверяем, что файл с таким именем не существует
+        if (Files.exists(targetPath)) {
+            fileName = generateUniqueFilename(targetDir, fileName);
+            targetPath = targetDir.resolve(fileName);
+        }
+        
+        Files.move(sourcePath, targetPath);
+        
+        // Обновляем ссылки
+        UserData userData = loadUserData(telegramId);
+        if (userData != null) {
+            String newFileId = targetFolder != null && !targetFolder.isEmpty() && !targetFolder.equals("/") 
+                ? targetFolder + "/" + fileName : fileName;
+            
+            for (ShareData share : userData.getShares()) {
+                if (share.getFileId().equals(fileId)) {
+                    share.setFileId(newFileId);
+                }
+            }
+            saveUserData(telegramId, userData);
+        }
+    }
+
     public FileData getFileByShare(String shareId) {
         try (DirectoryStream<Path> dirs = Files.newDirectoryStream(Paths.get(baseDir))) {
             for (Path userDir : dirs) {

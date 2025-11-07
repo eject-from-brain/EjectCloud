@@ -35,7 +35,7 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/admin/api/**", "/api/**", "/auth/**", "/share/**"))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/admin/**", "/admin/api/**", "/h2-console/**").hasRole("ADMIN")
+                        .requestMatchers("/admin.html", "/h2-console/**").hasRole("ADMIN")
                         .anyRequest().permitAll()
                 )
                 .httpBasic(Customizer.withDefaults());

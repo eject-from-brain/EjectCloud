@@ -113,6 +113,110 @@
             font-weight: bold;
             color: #007acc;
         }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .close {
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        .folder-tree {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        
+        .folder-item {
+            padding: 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 2px 0;
+        }
+        
+        .folder-item:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .folder-item.selected {
+            background-color: #007acc;
+            color: white;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border-left: 4px solid #007acc;
+            border-radius: 4px;
+            padding: 15px 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1001;
+            min-width: 300px;
+            max-width: 400px;
+        }
+        
+        .notification.success {
+            border-left-color: #28a745;
+        }
+        
+        .notification.error {
+            border-left-color: #dc3545;
+        }
+        
+        .notification.warning {
+            border-left-color: #ffc107;
+        }
     </style>
 </head>
 <body>
@@ -172,6 +276,59 @@
 </div>
 
 <input type="file" id="fileInput" multiple style="display: none;">
+
+<!-- Модальное окно перемещения -->
+<div id="moveModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="modal-title">Переместить файл</div>
+            <span class="close" onclick="closeMoveModal()">&times;</span>
+        </div>
+        <div>
+            <p id="moveFileName"></p>
+            <div class="folder-tree" id="folderTree"></div>
+        </div>
+        <div class="modal-buttons">
+            <button onclick="closeMoveModal()">Отмена</button>
+            <button onclick="confirmMove()" style="background: #007acc; color: white;">Переместить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно подтверждения -->
+<div id="confirmModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="modal-title">Подтверждение</div>
+            <span class="close" onclick="closeConfirmModal()">&times;</span>
+        </div>
+        <div>
+            <p id="confirmMessage"></p>
+        </div>
+        <div class="modal-buttons">
+            <button onclick="closeConfirmModal()">Отмена</button>
+            <button id="confirmButton" onclick="confirmAction()" style="background: #dc3545; color: white;">Подтвердить</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно ввода -->
+<div id="inputModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="modal-title" id="inputTitle">Ввод</div>
+            <span class="close" onclick="closeInputModal()">&times;</span>
+        </div>
+        <div>
+            <p id="inputMessage"></p>
+            <input type="text" id="inputField" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+        </div>
+        <div class="modal-buttons">
+            <button onclick="closeInputModal()">Отмена</button>
+            <button onclick="confirmInput()" style="background: #007acc; color: white;">ОК</button>
+        </div>
+    </div>
+</div>
 
 <script src="app.js"></script>
 </body>

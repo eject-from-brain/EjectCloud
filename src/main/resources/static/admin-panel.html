@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>EjectCloud - Админ панель</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        .hidden { display: none; }
+        
+        #error {
+            max-width: 500px;
+            margin: 100px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        #error h2 {
+            color: #e74c3c;
+            margin-top: 0;
+        }
+        
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #2c3e50;
+            color: white;
+            overflow-y: auto;
+        }
+        
+        .sidebar-header {
+            padding: 20px;
+            background: #34495e;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .nav-item {
+            padding: 15px 20px;
+            cursor: pointer;
+            border-bottom: 1px solid #34495e;
+        }
+        
+        .nav-item:hover, .nav-item.active {
+            background: #3498db;
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .toolbar {
+            padding: 15px 20px;
+            background: white;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .content-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .metric:last-child {
+            border-bottom: none;
+        }
+        
+        .metric-value {
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #27ae60, #f39c12, #e74c3c);
+            transition: width 0.3s;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        th {
+            background: #34495e;
+            color: white;
+            font-weight: bold;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background: #3498db;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        button.danger {
+            background: #e74c3c;
+        }
+        
+        button.danger:hover {
+            background: #c0392b;
+        }
+        
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .chart-container {
+            height: 300px;
+            margin: 10px 0;
+            background: white;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .monitoring-grid {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: 1fr 1fr;
+        }
+        
+        @media (max-width: 1400px) {
+            .monitoring-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .storage-full {
+            grid-column: 1 / -1;
+        }
+        
+        #timer {
+            font-weight: bold;
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+
+<div id="error" class="hidden">
+    <h2>Доступ запрещен</h2>
+    <p>Неверная ссылка или истек срок действия токена.</p>
+    <p>Получите новую ссылку через команду <code>/admin</code> в Telegram боте.</p>
+</div>
+
+<div id="app" class="hidden">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            Админ панель
+        </div>
+        <div class="nav-item active" onclick="showTab('dashboard')">📊 Дашборд</div>
+        <div class="nav-item" onclick="showTab('users')">👥 Пользователи</div>
+        <div class="nav-item" onclick="showTab('monitoring')">📈 Мониторинг</div>
+    </div>
+    
+    <div class="main-content">
+        <div class="toolbar">
+            <h2 id="pageTitle">Дашборд</h2>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span>Админ: <span id="who"></span></span>
+                <span>Сессия: <span id="timer"></span></span>
+                <button onclick="logout()">Выход</button>
+            </div>
+        </div>
+        
+        <div class="content-area">
+            <!-- Дашборд -->
+            <div id="tab-dashboard">
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <h3>💾 Дисковое пространство</h3>
+                        <div class="metric">
+                            <span>Всего:</span>
+                            <span class="metric-value" id="totalDisk">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Свободно:</span>
+                            <span class="metric-value" id="freeDisk">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Использовано:</span>
+                            <span class="metric-value" id="usedDisk">-</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="diskProgress"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>🖥️ Система</h3>
+                        <div class="metric">
+                            <span>CPU:</span>
+                            <span class="metric-value" id="cpuUsage">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Память:</span>
+                            <span class="metric-value" id="memoryUsage">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Пользователей:</span>
+                            <span class="metric-value" id="userCount">-</span>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>👥 Квоты пользователей</h3>
+                        <div class="metric">
+                            <span>Общая квота:</span>
+                            <span class="metric-value" id="totalQuota">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Использовано:</span>
+                            <span class="metric-value" id="totalUsed">-</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="quotaProgress"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>📊 Топ пользователей по использованию</h3>
+                    <table id="topUsersTable">
+                        <thead>
+                            <tr>
+                                <th>Пользователь</th>
+                                <th>Использовано</th>
+                                <th>Квота</th>
+                                <th>%</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Пользователи -->
+            <div id="tab-users" class="hidden">
+                <div class="card" style="margin-bottom: 20px;">
+                    <h3>Создать пользователя</h3>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input id="newTelegramId" placeholder="Telegram ID" />
+                        <input id="newUsername" placeholder="Username" />
+                        <input id="newQuota" type="number" placeholder="Квота (MB)" value="1024" />
+                        <button onclick="createUser()">Создать</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Управление пользователями</h3>
+                    <button onclick="loadUsers()" style="margin-bottom: 15px;">🔄 Обновить</button>
+                    <table id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>Telegram ID</th>
+                                <th>Username</th>
+                                <th>Квота (MB)</th>
+                                <th>Использовано (MB)</th>
+                                <th>Свободно (%)</th>
+                                <th>Создан</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Мониторинг -->
+            <div id="tab-monitoring" class="hidden">
+                <div class="monitoring-grid">
+                    <div class="card">
+                        <h3>📈 CPU Usage</h3>
+                        <div style="margin-bottom: 15px;">
+                            <select id="cpuPeriod" onchange="loadHistory(this.value, 'cpu')">
+                                <option value="5m">5 минут</option>
+                                <option value="30m">30 минут</option>
+                                <option value="1h" selected>1 час</option>
+                                <option value="3h">3 часа</option>
+                                <option value="6h">6 часов</option>
+                                <option value="12h">12 часов</option>
+                                <option value="24h">24 часа</option>
+                                <option value="3d">3 суток</option>
+                                <option value="10d">10 дней</option>
+                                <option value="30d">30 дней</option>
+                            </select>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="cpuChart" width="600" height="280"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>💾 Memory Usage</h3>
+                        <div style="margin-bottom: 15px;">
+                            <select id="memoryPeriod" onchange="loadHistory(this.value, 'memory')">
+                                <option value="5m">5 минут</option>
+                                <option value="30m">30 минут</option>
+                                <option value="1h" selected>1 час</option>
+                                <option value="3h">3 часа</option>
+                                <option value="6h">6 часов</option>
+                                <option value="12h">12 часов</option>
+                                <option value="24h">24 часа</option>
+                                <option value="3d">3 суток</option>
+                                <option value="10d">10 дней</option>
+                                <option value="30d">30 дней</option>
+                            </select>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="memoryChart" width="600" height="280"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="card storage-full">
+                        <h3>💿 Storage Usage</h3>
+                        <div style="margin-bottom: 15px;">
+                            <select id="storagePeriod" onchange="loadHistory(this.value, 'storage')">
+                                <option value="5m">5 минут</option>
+                                <option value="30m">30 минут</option>
+                                <option value="1h" selected>1 час</option>
+                                <option value="3h">3 часа</option>
+                                <option value="6h">6 часов</option>
+                                <option value="12h">12 часов</option>
+                                <option value="24h">24 часа</option>
+                                <option value="3d">3 суток</option>
+                                <option value="10d">10 дней</option>
+                                <option value="30d">30 дней</option>
+                            </select>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="storageChart" width="1200" height="280"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentUser = null;
+let sessionTimer = null;
+let sessionStart = null;
+let inactivityTimer = null;
+let lastActivity = Date.now();
+
+// Проверка токена при загрузке
+window.onload = function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (token) {
+        validateToken(token);
+    } else {
+        showError();
+    }
+};
+
+function validateToken(token) {
+    fetch('/auth/validate?token=' + token)
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                localStorage.setItem('adminToken', token);
+                currentUser = data.user;
+                document.getElementById('who').textContent = currentUser;
+                document.getElementById('app').classList.remove('hidden');
+                
+                sessionStart = Date.now();
+                startSessionTimer();
+                loadDashboard();
+                setInterval(loadDashboard, 30000);
+            } else {
+                showError();
+            }
+        })
+        .catch(e => showError());
+}
+
+function showError() {
+    document.getElementById('error').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
+    localStorage.removeItem('adminToken');
+}
+
+function startSessionTimer() {
+    sessionTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        document.getElementById('timer').textContent = 
+            `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        
+        // Проверка бездействия (10 минут)
+        if (Date.now() - lastActivity > 600000) {
+            logout();
+        }
+    }, 1000);
+    
+    // Отслеживание активности
+    ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'].forEach(event => {
+        document.addEventListener(event, () => {
+            lastActivity = Date.now();
+        }, true);
+    });
+}
+
+function logout() {
+    if (sessionTimer) {
+        clearInterval(sessionTimer);
+    }
+    localStorage.removeItem('adminToken');
+    showError();
+}
+
+function showTab(tabName) {
+    // Скрыть все вкладки
+    document.querySelectorAll('[id^="tab-"]').forEach(tab => {
+        tab.classList.add('hidden');
+    });
+    
+    // Убрать активный класс с навигации
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    
+    // Показать выбранную вкладку
+    document.getElementById('tab-' + tabName).classList.remove('hidden');
+    
+    // Активировать навигацию
+    event.target.classList.add('active');
+    
+    // Обновить заголовок
+    const titles = {
+        'dashboard': 'Дашборд',
+        'users': 'Пользователи', 
+        'monitoring': 'Мониторинг'
+    };
+    document.getElementById('pageTitle').textContent = titles[tabName];
+    
+    // Загрузить данные для вкладки
+    if (tabName === 'users') {
+        loadUsers();
+    } else if (tabName === 'monitoring') {
+        loadHistory('1h', 'cpu');
+        loadHistory('1h', 'memory');
+        loadHistory('1h', 'storage');
+    }
+}
+
+function loadDashboard() {
+    const token = localStorage.getItem('adminToken');
+    if (!token) {
+        logout();
+        return;
+    }
+    
+    // Обновляем активность
+    lastActivity = Date.now();
+    
+    fetch('/admin/api/dashboard?token=' + token)
+        .then(r => {
+            if (r.status === 401) {
+                logout();
+                return;
+            }
+            return r.json();
+        })
+        .then(data => {
+            if (data) {
+                updateSystemMetrics(data.system);
+                updateUserMetrics(data.users);
+                updateTopUsers(data.users.list);
+            }
+        })
+        .catch(e => console.error('Ошибка загрузки дашборда:', e));
+}
+
+function updateSystemMetrics(system) {
+    const totalGB = (system.totalDiskSpace / 1024 / 1024 / 1024).toFixed(1);
+    const freeGB = (system.freeDiskSpace / 1024 / 1024 / 1024).toFixed(1);
+    const usedGB = (totalGB - freeGB).toFixed(1);
+    const diskPercent = ((usedGB / totalGB) * 100).toFixed(1);
+    
+    document.getElementById('totalDisk').textContent = totalGB + ' GB';
+    document.getElementById('freeDisk').textContent = freeGB + ' GB';
+    document.getElementById('usedDisk').textContent = usedGB + ' GB (' + diskPercent + '%)';
+    document.getElementById('diskProgress').style.width = diskPercent + '%';
+    
+    document.getElementById('cpuUsage').textContent = system.cpuUsage.toFixed(1) + '%';
+    
+    const memoryPercent = ((system.memoryUsed / system.memoryTotal) * 100).toFixed(1);
+    const memoryMB = (system.memoryUsed / 1024 / 1024).toFixed(0);
+    document.getElementById('memoryUsage').textContent = memoryMB + ' MB (' + memoryPercent + '%)';
+}
+
+function updateUserMetrics(users) {
+    document.getElementById('userCount').textContent = users.count;
+    
+    const totalQuotaGB = (users.totalQuota / 1024 / 1024 / 1024).toFixed(1);
+    const totalUsedGB = (users.totalUsed / 1024 / 1024 / 1024).toFixed(1);
+    const quotaPercent = users.totalQuota > 0 ? ((users.totalUsed / users.totalQuota) * 100).toFixed(1) : 0;
+    
+    document.getElementById('totalQuota').textContent = totalQuotaGB + ' GB';
+    document.getElementById('totalUsed').textContent = totalUsedGB + ' GB (' + quotaPercent + '%)';
+    document.getElementById('quotaProgress').style.width = quotaPercent + '%';
+}
+
+function updateTopUsers(usersList) {
+    const tbody = document.querySelector('#topUsersTable tbody');
+    tbody.innerHTML = '';
+    
+    usersList
+        .sort((a, b) => b.usedBytes - a.usedBytes)
+        .slice(0, 5)
+        .forEach(user => {
+            const row = tbody.insertRow();
+            const usedMB = Math.round(user.usedBytes / 1024 / 1024);
+            const quotaMB = Math.round(user.quotaBytes / 1024 / 1024);
+            const percent = quotaMB > 0 ? ((usedMB / quotaMB) * 100).toFixed(1) : 0;
+            
+            row.innerHTML = `
+                <td>${user.username}</td>
+                <td>${usedMB} MB</td>
+                <td>${quotaMB} MB</td>
+                <td>${percent}%</td>
+            `;
+        });
+}
+
+function loadUsers() {
+    const token = localStorage.getItem('adminToken');
+    if (!token) {
+        logout();
+        return;
+    }
+    
+    lastActivity = Date.now();
+    
+    fetch('/admin/api/users?token=' + token)
+        .then(r => {
+            if (r.status === 401) {
+                logout();
+                return;
+            }
+            return r.json();
+        })
+        .then(users => {
+            if (!users) return;
+            const tbody = document.querySelector('#usersTable tbody');
+            tbody.innerHTML = '';
+            
+            users.forEach(user => {
+                const row = tbody.insertRow();
+                const quotaMB = Math.round(user.quotaBytes / 1024 / 1024);
+                const usedMB = Math.round(user.usedBytes / 1024 / 1024);
+                const freePercent = quotaMB > 0 ? (((quotaMB - usedMB) / quotaMB) * 100).toFixed(1) : 100;
+                
+                row.innerHTML = `
+                    <td>${user.telegramId}</td>
+                    <td>${user.username}</td>
+                    <td>${quotaMB}</td>
+                    <td>${usedMB}</td>
+                    <td>${freePercent}%</td>
+                    <td>${new Date(user.createdAt).toLocaleDateString()}</td>
+                    <td>
+                        <input type="number" id="quota_${user.telegramId}" value="${quotaMB}" style="width:80px" />
+                        <button onclick="updateQuota('${user.telegramId}')">Изменить</button>
+                        <button class="danger" onclick="deleteUser('${user.telegramId}', '${user.username}')">Удалить</button>
+                    </td>
+                `;
+            });
+        })
+        .catch(e => alert('Ошибка загрузки пользователей: ' + e.message));
+}
+
+function createUser() {
+    const telegramId = document.getElementById('newTelegramId').value;
+    const username = document.getElementById('newUsername').value;
+    const quotaMB = document.getElementById('newQuota').value;
+    
+    if (!telegramId || !username || !quotaMB) {
+        alert('Заполните все поля');
+        return;
+    }
+    
+    const token = localStorage.getItem('adminToken');
+    if (!token) {
+        logout();
+        return;
+    }
+    
+    const params = new URLSearchParams();
+    params.append('token', token);
+    params.append('telegramId', telegramId);
+    params.append('username', username);
+    params.append('quotaBytes', quotaMB * 1024 * 1024);
+    
+    fetch('/admin/api/users', {
+        method: 'POST',
+        body: params
+    })
+    .then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t); });
+        return r.json();
+    })
+    .then(() => {
+        alert('Пользователь создан');
+        loadUsers();
+        document.getElementById('newTelegramId').value = '';
+        document.getElementById('newUsername').value = '';
+        document.getElementById('newQuota').value = '1024';
+    })
+    .catch(e => alert('Ошибка: ' + e.message));
+}
+
+function updateQuota(telegramId) {
+    const quotaMB = document.getElementById(`quota_${telegramId}`).value;
+    const quotaBytes = quotaMB * 1024 * 1024;
+    
+    const token = localStorage.getItem('adminToken');
+    if (!token) {
+        logout();
+        return;
+    }
+    
+    const params = new URLSearchParams();
+    params.append('token', token);
+    params.append('telegramId', telegramId);
+    params.append('quotaBytes', quotaBytes);
+    
+    fetch('/admin/api/quota', {
+        method: 'POST',
+        body: params
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('Ошибка сервера');
+        alert('Квота обновлена');
+        loadUsers();
+        loadDashboard(); // Обновляем дашборд
+    })
+    .catch(e => alert('Ошибка: ' + e.message));
+}
+
+function loadHistory(period = '1h', type = 'cpu') {
+    const token = localStorage.getItem('adminToken');
+    if (!token) {
+        logout();
+        return;
+    }
+    
+    lastActivity = Date.now();
+    
+    fetch('/admin/api/system/history?token=' + token + '&period=' + period)
+        .then(r => {
+            if (r.status === 401) {
+                logout();
+                return;
+            }
+            return r.json();
+        })
+        .then(data => {
+            if (data) {
+                drawChart(data.entries, type);
+            }
+        })
+        .catch(e => console.error('Ошибка загрузки истории:', e));
+}
+
+function drawChart(entries, type) {
+    const canvasId = type + 'Chart';
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    if (!entries || entries.length === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Нет данных', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+    
+    const padding = 50;
+    const bottomPadding = 30;
+    const chartWidth = canvas.width - 2 * padding;
+    const chartHeight = canvas.height - padding - bottomPadding;
+    
+    // Оси
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, padding + chartHeight);
+    ctx.lineTo(padding + chartWidth, padding + chartHeight);
+    ctx.stroke();
+    
+    // Получаем максимальные значения
+    let maxValue = 100;
+    let unit = '%';
+    let values = [];
+    
+    entries.forEach(entry => {
+        if (type === 'cpu') {
+            values.push(entry.cpuUsage);
+        } else if (type === 'memory') {
+            values.push(entry.memoryUsed / 1024 / 1024 / 1024); // в GB
+        } else if (type === 'storage') {
+            values.push(((entry.totalDiskSpace - entry.freeDiskSpace) / entry.totalDiskSpace) * 100);
+        }
+    });
+    
+    if (type === 'memory') {
+        maxValue = Math.ceil(Math.max(...values));
+        unit = 'GB';
+    } else {
+        maxValue = Math.max(100, Math.ceil(Math.max(...values)));
+    }
+    
+    // Шкала Y
+    ctx.fillStyle = '#666';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 5; i++) {
+        const y = padding + (chartHeight / 5) * i;
+        const value = maxValue - (i * maxValue / 5);
+        ctx.fillText(value.toFixed(type === 'memory' ? 1 : 0) + unit, padding - 5, y + 3);
+        
+        ctx.strokeStyle = '#f0f0f0';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(padding + chartWidth, y);
+        ctx.stroke();
+    }
+    
+    // Шкала X (время)
+    const period = document.getElementById(type + 'Period').value;
+    const timeLabels = getTimeLabels(entries, period);
+    ctx.fillStyle = '#666';
+    ctx.font = '9px Arial';
+    ctx.textAlign = 'center';
+    
+    const labelCount = Math.min(6, timeLabels.length);
+    for (let i = 0; i < labelCount; i++) {
+        const x = padding + (i / (labelCount - 1)) * chartWidth;
+        const labelIndex = Math.floor((i / (labelCount - 1)) * (timeLabels.length - 1));
+        ctx.fillText(timeLabels[labelIndex], x, padding + chartHeight + 15);
+    }
+    
+    // График
+    if (entries.length > 1) {
+        ctx.strokeStyle = type === 'cpu' ? '#e74c3c' : type === 'memory' ? '#3498db' : '#27ae60';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        values.forEach((value, index) => {
+            const x = padding + (index / (values.length - 1)) * chartWidth;
+            const y = padding + chartHeight - (value / maxValue) * chartHeight;
+            
+            if (index === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        
+        ctx.stroke();
+    }
+}
+
+function getTimeLabels(entries, period) {
+    return entries.map(entry => {
+        const date = new Date(entry.timestamp);
+        if (['5m', '30m', '1h'].includes(period)) {
+            return date.toLocaleTimeString('ru', {hour: '2-digit', minute: '2-digit'});
+        } else if (['3h', '6h', '12h', '24h'].includes(period)) {
+            return date.toLocaleTimeString('ru', {hour: '2-digit', minute: '2-digit'});
+        } else {
+            return date.toLocaleDateString('ru', {day: '2-digit', month: '2-digit'});
+        }
+    });
+}
+
+function deleteUser(telegramId, username) {
+    if (!confirm(`Удалить пользователя ${username} (${telegramId})? Все файлы будут удалены!`)) {
+        return;
+    }
+    
+    const token = localStorage.getItem('adminToken');
+    if (!token) {
+        logout();
+        return;
+    }
+    
+    const params = new URLSearchParams();
+    params.append('token', token);
+    params.append('telegramId', telegramId);
+    
+    fetch('/admin/api/users/delete', {
+        method: 'POST',
+        body: params
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('Ошибка сервера');
+        alert('Пользователь удален');
+        loadUsers();
+        loadDashboard();
+    })
+    .catch(e => alert('Ошибка: ' + e.message));
+}
+</script>
+</body>
+</html>

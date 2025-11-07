@@ -19,6 +19,9 @@
     let isInTrash = false;
     let inactivitySeconds = 1800; // 30 минут
     let lastActivity = Date.now();
+    let selectedMoveFile = null;
+    let selectedTargetFolder = '';
+    let confirmCallback = null;
     
     const $quotaProgress = document.getElementById('quotaProgress');
     const $quotaText = document.getElementById('quotaText');
@@ -32,6 +35,87 @@
         $login.classList.add('hidden');
         $app.classList.remove('hidden');
     }
+
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 4000);
+    }
+    
+    function showConfirm(message, callback) {
+        document.getElementById('confirmMessage').textContent = message;
+        confirmCallback = callback;
+        document.getElementById('confirmModal').style.display = 'block';
+    }
+    
+    window.closeConfirmModal = function() {
+        document.getElementById('confirmModal').style.display = 'none';
+        confirmCallback = null;
+    };
+    
+    window.confirmAction = function() {
+        if (confirmCallback) {
+            confirmCallback();
+        }
+        closeConfirmModal();
+    };
+
+    window.moveFileDialog = function(fileId) {
+        selectedMoveFile = fileId;
+        const fileName = fileId.split('/').pop();
+        
+        document.getElementById('moveFileName').textContent = `Переместить файл: ${fileName}`;
+        
+        const folderTree = document.getElementById('folderTree');
+        folderTree.innerHTML = '';
+        
+        // Корень
+        const rootItem = document.createElement('div');
+        rootItem.className = 'folder-item selected';
+        rootItem.textContent = '🏠 Корень';
+        rootItem.onclick = () => selectTargetFolder('', rootItem);
+        folderTree.appendChild(rootItem);
+        
+        // Папки
+        allFolders.forEach(folder => {
+            const item = document.createElement('div');
+            item.className = 'folder-item';
+            const depth = folder.split('/').length - 1;
+            item.style.paddingLeft = (20 + depth * 15) + 'px';
+            item.textContent = '📁 ' + folder.split('/').pop();
+            item.onclick = () => selectTargetFolder(folder, item);
+            folderTree.appendChild(item);
+        });
+        
+        selectedTargetFolder = '';
+        document.getElementById('moveModal').style.display = 'block';
+    };
+    
+    function selectTargetFolder(folder, element) {
+        document.querySelectorAll('.folder-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+        element.classList.add('selected');
+        selectedTargetFolder = folder;
+    }
+    
+    window.closeMoveModal = function() {
+        document.getElementById('moveModal').style.display = 'none';
+        selectedMoveFile = null;
+        selectedTargetFolder = '';
+    };
+    
+    window.confirmMove = function() {
+        if (selectedMoveFile) {
+            moveFile(selectedMoveFile, selectedTargetFolder);
+            closeMoveModal();
+        }
+    };
 
     function doValidate() {
         console.log('Validating token:', token);
@@ -49,12 +133,12 @@
                     touch();
                     loadFiles();
                 } else {
-                    alert('Ссылка устарела или недействительна. Получите новую ссылку через /link в боте.');
+                    showNotification('Ссылка устарела или недействительна. Получите новую ссылку через /link в боте.', 'error');
                     showLogin();
                 }
             }).catch(e => {
             console.error('Validation error:', e);
-            alert('Ошибка соединения: ' + e.message);
+            showNotification('Ошибка соединения: ' + e.message, 'error');
             showLogin();
         });
     }
@@ -103,7 +187,7 @@
                 showFilesInPath(currentPath);
             }
         })
-        .catch(e => alert('Ошибка загрузки: ' + e.message));
+        .catch(e => showNotification('Ошибка загрузки: ' + e.message, 'error'));
     }
 
     function buildFileTree() {
@@ -296,6 +380,7 @@
             actionsCell.innerHTML = `
                 <button onclick="downloadFile('${file.id}')">Скачать</button>
                 <button onclick="shareFile('${file.id}')">Поделиться</button>
+                <button onclick="moveFileDialog('${file.id}')">Переместить</button>
                 <button onclick="deleteFile('${file.id}')">Удалить</button>
             `;
         });
@@ -332,7 +417,7 @@
                 if (quota.remaining < totalSize) {
                     const remainingMB = (quota.remaining / 1024 / 1024).toFixed(2);
                     const neededMB = (totalSize / 1024 / 1024).toFixed(2);
-                    alert(`Недостаточно места!\nОсталось: ${remainingMB} MB\nНужно: ${neededMB} MB`);
+                    showNotification(`Недостаточно места! Осталось: ${remainingMB} MB, нужно: ${neededMB} MB`, 'warning');
                     this.value = ''; // Очищаем input
                     return;
                 }
@@ -341,7 +426,7 @@
                 uploadFilesSequentially(Array.from(files), 0);
             })
             .catch(e => {
-                alert('Ошибка проверки квоты: ' + e.message);
+                showNotification('Ошибка проверки квоты: ' + e.message, 'error');
                 this.value = ''; // Очищаем input
             });
     });
@@ -376,7 +461,7 @@
                 try {
                     const response = JSON.parse(xhr.responseText);
                     if (response.renamed) {
-                        alert(`Файл "${response.originalName}" был переименован в "${response.newName}" (файл с таким именем уже существовал)`);
+                        showNotification(`Файл "${response.originalName}" переименован в "${response.newName}"`, 'warning');
                     }
                 } catch (e) {
                     // Игнорируем ошибки парсинга
@@ -384,20 +469,20 @@
                 // Загружаем следующий файл
                 uploadFilesSequentially(files, index + 1);
             } else {
-                alert(`Ошибка загрузки ${file.name}: ${xhr.responseText}`);
+                showNotification(`Ошибка загрузки ${file.name}: ${xhr.responseText}`, 'error');
                 // Продолжаем загрузку остальных файлов
                 uploadFilesSequentially(files, index + 1);
             }
         };
         
         xhr.onerror = function() {
-            alert(`Ошибка загрузки ${file.name}: Соединение прервано`);
+            showNotification(`Ошибка загрузки ${file.name}: Соединение прервано`, 'error');
             // Продолжаем загрузку остальных файлов
             uploadFilesSequentially(files, index + 1);
         };
         
         xhr.ontimeout = function() {
-            alert(`Ошибка загрузки ${file.name}: Превышено время ожидания`);
+            showNotification(`Ошибка загрузки ${file.name}: Превышено время ожидания`, 'error');
             // Продолжаем загрузку остальных файлов
             uploadFilesSequentially(files, index + 1);
         };
@@ -472,40 +557,70 @@
         }
     }
 
-    window.createFolder = function() {
-        const folderName = prompt('Введите имя папки:');
-        if (!folderName) return;
-        
-        // Валидация имени папки
-        if (/[<>:"/\\|?*]/.test(folderName)) {
-            alert('Имя папки содержит запрещенные символы: < > : " / \\ | ? *');
-            return;
+    let inputCallback = null;
+    
+    function showInput(title, message, callback) {
+        document.getElementById('inputTitle').textContent = title;
+        document.getElementById('inputMessage').textContent = message;
+        document.getElementById('inputField').value = '';
+        inputCallback = callback;
+        document.getElementById('inputModal').style.display = 'block';
+        document.getElementById('inputField').focus();
+    }
+    
+    window.closeInputModal = function() {
+        document.getElementById('inputModal').style.display = 'none';
+        inputCallback = null;
+    };
+    
+    window.confirmInput = function() {
+        const value = document.getElementById('inputField').value.trim();
+        if (inputCallback && value) {
+            inputCallback(value);
         }
+        closeInputModal();
+    };
+    
+    // Enter для подтверждения
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && document.getElementById('inputModal').style.display === 'block') {
+            confirmInput();
+        }
+    });
 
-        const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName;
-        
-        fetch(`/api/files/mkdir?token=${encodeURIComponent(token)}&path=${encodeURIComponent(folderPath)}`, {
-            method: 'POST'
-        })
-        .then(r => {
-            if (!r.ok) throw new Error('Ошибка создания папки');
-            loadFiles();
-        })
-        .catch(e => alert('Ошибка: ' + e.message));
+    window.createFolder = function() {
+        showInput('Создать папку', 'Введите имя папки:', (folderName) => {
+            // Валидация имени папки
+            if (/[<>:"/\\|?*]/.test(folderName)) {
+                showNotification('Имя папки содержит запрещенные символы', 'error');
+                return;
+            }
+
+            const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+            
+            fetch(`/api/files/mkdir?token=${encodeURIComponent(token)}&path=${encodeURIComponent(folderPath)}`, {
+                method: 'POST'
+            })
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка создания папки');
+                loadFiles();
+            })
+            .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+        });
     };
     
     window.deleteFolder = function(folderPath) {
         const folderName = folderPath.split('/').pop();
-        if (!confirm(`Переместить папку "${folderName}" в корзину?`)) return;
-        
-        fetch(`/api/files/folder?path=${encodeURIComponent(folderPath)}&token=${encodeURIComponent(token)}`, {
-            method: 'DELETE'
-        })
-        .then(r => {
-            if (!r.ok) return r.text().then(t => { throw new Error(t); });
-            loadFiles();
-        })
-        .catch(e => alert('Ошибка: ' + e.message));
+        showConfirm(`Переместить папку "${folderName}" в корзину?`, () => {
+            fetch(`/api/files/folder?path=${encodeURIComponent(folderPath)}&token=${encodeURIComponent(token)}`, {
+                method: 'DELETE'
+            })
+            .then(r => {
+                if (!r.ok) return r.text().then(t => { throw new Error(t); });
+                loadFiles();
+            })
+            .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+        });
     };
 
     window.downloadFile = function(fileId) {
@@ -520,14 +635,14 @@
         .then(data => {
             const shareUrl = window.location.origin + data.shareUrl;
             navigator.clipboard.writeText(shareUrl).then(() => {
-                alert('Ссылка скопирована в буфер обмена: ' + shareUrl);
+                showNotification('Ссылка скопирована в буфер обмена', 'success');
                 loadFiles(); // Обновляем список для отображения ссылки
             }).catch(() => {
                 prompt('Ссылка для скачивания:', shareUrl);
                 loadFiles();
             });
         })
-        .catch(e => alert('Ошибка создания ссылки: ' + e.message));
+        .catch(e => showNotification('Ошибка создания ссылки: ' + e.message, 'error'));
     };
     
     window.copyExistingShare = function(fileId) {
@@ -538,46 +653,58 @@
         .then(data => {
             const shareUrl = window.location.origin + data.shareUrl;
             navigator.clipboard.writeText(shareUrl).then(() => {
-                alert('Ссылка скопирована в буфер обмена: ' + shareUrl);
+                showNotification('Ссылка скопирована в буфер обмена', 'success');
             }).catch(() => {
                 prompt('Ссылка для скачивания:', shareUrl);
             });
         })
-        .catch(e => alert('Ошибка: ' + e.message));
+        .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
     };
     
     window.deleteShareLink = function(fileId) {
-        if (!confirm('Удалить ссылку на файл?')) return;
-        
-        fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
-            method: 'DELETE'
-        })
-        .then(r => {
-            if (!r.ok) throw new Error('Ошибка удаления ссылки');
-            loadFiles();
-        })
-        .catch(e => alert('Ошибка: ' + e.message));
+        showConfirm('Удалить ссылку на файл?', () => {
+            fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
+                method: 'DELETE'
+            })
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка удаления ссылки');
+                loadFiles();
+            })
+            .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+        });
     };
 
     window.deleteFile = function(fileId) {
         const fileName = fileId.split('/').pop();
-        if (!confirm(`Переместить файл "${fileName}" в корзину?`)) return;
-        
-        fetch(`/api/files/delete?id=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
-            method: 'DELETE'
+        showConfirm(`Переместить файл "${fileName}" в корзину?`, () => {
+            fetch(`/api/files/delete?id=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
+                method: 'DELETE'
+            })
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка удаления');
+                loadFiles();
+            })
+            .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+        });
+    };
+
+    function moveFile(fileId, targetFolder) {
+        fetch(`/api/files/move?fileId=${encodeURIComponent(fileId)}&targetFolder=${encodeURIComponent(targetFolder)}&token=${encodeURIComponent(token)}`, {
+            method: 'POST'
         })
         .then(r => {
-            if (!r.ok) throw new Error('Ошибка удаления');
+            if (!r.ok) throw new Error('Ошибка перемещения файла');
+            showNotification('Файл успешно перемещен', 'success');
             loadFiles();
         })
-        .catch(e => alert('Ошибка: ' + e.message));
-    };
+        .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+    }
 
     function logout() {
         localStorage.removeItem('eject_token');
         token = null;
         showLogin();
-        alert('Сессия завершена. Получите новую ссылку через /link в боте.');
+        showNotification('Сессия завершена. Получите новую ссылку через /link в боте.', 'warning');
     }
 
     function showTrash() {
@@ -698,43 +825,43 @@
     }
     
     window.clearTrash = function() {
-        if (!confirm('Очистить корзину? Все файлы будут удалены навсегда!')) return;
-        
-        fetch(`/api/files/trash/clear?token=${encodeURIComponent(token)}`, {
-            method: 'DELETE'
-        })
-        .then(r => {
-            if (!r.ok) throw new Error('Ошибка очистки корзины');
-            loadFiles();
-        })
-        .catch(e => alert('Ошибка: ' + e.message));
+        showConfirm('Очистить корзину? Все файлы будут удалены навсегда!', () => {
+            fetch(`/api/files/trash/clear?token=${encodeURIComponent(token)}`, {
+                method: 'DELETE'
+            })
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка очистки корзины');
+                loadFiles();
+            })
+            .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+        });
     };
     
     window.deleteFromTrash = function(itemId) {
-        if (!confirm('Удалить навсегда? Это действие нельзя отменить!')) return;
-        
-        fetch(`/api/files/trash/${encodeURIComponent(itemId)}?token=${encodeURIComponent(token)}`, {
-            method: 'DELETE'
-        })
-        .then(r => {
-            if (!r.ok) throw new Error('Ошибка удаления');
-            loadFiles();
-        })
-        .catch(e => alert('Ошибка: ' + e.message));
+        showConfirm('Удалить навсегда? Это действие нельзя отменить!', () => {
+            fetch(`/api/files/trash/${encodeURIComponent(itemId)}?token=${encodeURIComponent(token)}`, {
+                method: 'DELETE'
+            })
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка удаления');
+                loadFiles();
+            })
+            .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+        });
     };
     
     window.restoreFromTrash = function(itemId) {
         const itemName = itemId.split('/').pop();
-        if (!confirm(`Восстановить "${itemName}"?`)) return;
-        
-        fetch(`/api/files/trash/restore/${encodeURIComponent(itemId)}?token=${encodeURIComponent(token)}`, {
-            method: 'POST'
-        })
-        .then(r => {
-            if (!r.ok) throw new Error('Ошибка восстановления');
-            loadFiles();
-        })
-        .catch(e => alert('Ошибка: ' + e.message));
+        showConfirm(`Восстановить "${itemName}"?`, () => {
+            fetch(`/api/files/trash/restore/${encodeURIComponent(itemId)}?token=${encodeURIComponent(token)}`, {
+                method: 'POST'
+            })
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка восстановления');
+                loadFiles();
+            })
+            .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+        });
     };
     
     function updateQuotaDisplay(quota) {

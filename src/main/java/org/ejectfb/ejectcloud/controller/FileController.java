@@ -241,4 +241,18 @@ public class FileController {
             return ResponseEntity.status(400).body(e.getMessage());
         }
     }
+    
+    @PostMapping("/move")
+    public ResponseEntity<?> moveFile(@RequestParam String fileId, 
+                                     @RequestParam String targetFolder, 
+                                     @RequestParam String token) {
+        String telegramId = requireTelegramId(token);
+        try {
+            storageService.moveFile(telegramId, fileId, targetFolder);
+            storageService.touchToken(token);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.status(400).body(e.getMessage());
+        }
+    }
 }

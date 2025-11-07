@@ -48,7 +48,8 @@ public class TelegramBotHandler {
         bot = new TelegramBot(botToken);
         
         BotCommand[] commands = {
-            new BotCommand("link", "📱 Войти в UI")
+            new BotCommand("link", "📱 Войти в UI"),
+            new BotCommand("admin", "🔧 Админ панель")
         };
         bot.execute(new SetMyCommands(commands));
         
@@ -73,10 +74,13 @@ public class TelegramBotHandler {
             if (text.equals("/link")) {
                 handleLinkRequest(chatId);
                 deleteMessageDelayed(chatId, update.message().messageId());
+            } else if (text.equals("/admin")) {
+                handleAdminPanelRequest(chatId);
+                deleteMessageDelayed(chatId, update.message().messageId());
             } else if (text.startsWith("/")) {
                 handleAdminCommand(chatId, text);
             } else {
-                sendMessage(chatId, "Команды админа:\n/approve <chat_id> - одобрить пользователя\n/stats - статистика\n/link - ваша ссылка на UI");
+                sendMessage(chatId, "Команды админа:\n/approve <chat_id> - одобрить пользователя\n/stats - статистика\n/link - ваша ссылка на UI\n/admin - админ панель");
             }
             return;
         }
@@ -86,6 +90,8 @@ public class TelegramBotHandler {
         } else if (text.equals("/link")) {
             handleLinkRequest(chatId);
             deleteMessageDelayed(chatId, update.message().messageId());
+        } else if (text.equals("/admin")) {
+            sendMessage(chatId, "У вас нет прав администратора.");
         } else {
         }
     }
@@ -118,6 +124,23 @@ public class TelegramBotHandler {
         }
     }
     
+    private void handleAdminPanelRequest(String chatId) {
+        if (chatId.equals(adminChatId)) {
+            String token = storageService.createToken(chatId);
+            String adminLink = baseUrl + "/admin-panel.html?token=" + token;
+            
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(
+                new InlineKeyboardButton[]{new InlineKeyboardButton("Закончить сессию").callbackData("close:" + chatId)}
+            );
+            
+            SendMessage message = new SendMessage(chatId, "Админ-панель: " + adminLink)
+                .replyMarkup(keyboard);
+            bot.execute(message);
+        } else {
+            sendMessage(chatId, "У вас нет прав администратора.");
+        }
+    }
+    
     private void handleLinkRequest(String chatId) {
         if (chatId.equals(adminChatId)) {
             String token = storageService.createToken(chatId);
@@ -127,9 +150,9 @@ public class TelegramBotHandler {
                 new InlineKeyboardButton[]{new InlineKeyboardButton("Закончить сессию").callbackData("close:" + chatId)}
             );
             
-            SendMessage message = new SendMessage(chatId, "Админ-панель: " + loginLink)
+            SendMessage message = new SendMessage(chatId, "Пользовательская панель: " + loginLink)
                 .replyMarkup(keyboard);
-            var response = bot.execute(message);
+            bot.execute(message);
         } else if (storageService.userExists(chatId)) {
             String token = storageService.createToken(chatId);
             String loginLink = baseUrl + "/?token=" + token;
