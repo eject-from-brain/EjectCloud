@@ -4,6 +4,7 @@ import org.ejectfb.ejectcloud.model.FileData;
 import org.ejectfb.ejectcloud.model.UserData;
 import org.ejectfb.ejectcloud.service.FileStorageService;
 import org.ejectfb.ejectcloud.service.JwtService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +20,9 @@ import java.util.stream.Collectors;
 public class FileController {
     private final FileStorageService storageService;
     private final JwtService jwtService;
+    
+    @Value("${ejectcloud.upload.timeout:10800000}")
+    private long uploadTimeout;
 
     public FileController(FileStorageService storageService, JwtService jwtService) {
         this.storageService = storageService;
@@ -144,6 +148,13 @@ public class FileController {
             "quota", quota,
             "remaining", Math.max(0, quota - totalUsed),
             "percentage", quota > 0 ? (double) totalUsed / quota * 100 : 0
+        ));
+    }
+    
+    @GetMapping("/config/upload-timeout")
+    public ResponseEntity<?> getUploadTimeout() {
+        return ResponseEntity.ok(java.util.Map.of(
+            "timeout", uploadTimeout
         ));
     }
 

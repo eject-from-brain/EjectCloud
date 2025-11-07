@@ -505,59 +505,81 @@
         }
         
         const file = files[index];
-        showUploadProgress(file.name, index + 1, files.length);
+        showUploadProgress(file.name, index + 1, files.length, file.size);
         
         const fd = new FormData();
         fd.append('file', file);
         fd.append('token', getAuthToken());
         if (currentPath) fd.append('path', currentPath);
 
-        const xhr = new XMLHttpRequest();
-        
-        xhr.upload.addEventListener('progress', (e) => {
-            if (e.lengthComputable) {
-                const percentComplete = (e.loaded / e.total) * 100;
-                updateUploadProgress(percentComplete);
-            }
-        });
-        
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    if (response.renamed) {
-                        showNotification(`Файл "${response.originalName}" переименован в "${response.newName}"`, 'warning');
+        // Получаем таймаут из конфига
+        fetch('/api/files/config/upload-timeout')
+            .then(r => r.json())
+            .then(config => {
+                startUpload(config.timeout);
+            })
+            .catch(() => {
+                startUpload(10800000); // fallback 3 часа
+            });
+            
+        function startUpload(timeout) {
+            const xhr = new XMLHttpRequest();
+            let startTime = Date.now();
+            let lastLoaded = 0;
+            let lastTime = startTime;
+            
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    const now = Date.now();
+                    const timeDiff = (now - lastTime) / 1000;
+                    const loadedDiff = e.loaded - lastLoaded;
+                    
+                    let speed = 0;
+                    if (timeDiff > 0.5) {
+                        speed = loadedDiff / timeDiff;
+                        lastTime = now;
+                        lastLoaded = e.loaded;
                     }
-                } catch (e) {
-                    // Игнорируем ошибки парсинга
+                    
+                    const percentComplete = (e.loaded / e.total) * 100;
+                    updateUploadProgress(percentComplete, e.loaded, e.total, speed);
                 }
-                // Загружаем следующий файл
+            });
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.renamed) {
+                            showNotification(`Файл "${response.originalName}" переименован в "${response.newName}"`, 'warning');
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки парсинга
+                    }
+                    uploadFilesSequentially(files, index + 1);
+                } else {
+                    showNotification(`Ошибка загрузки ${file.name}: ${xhr.responseText}`, 'error');
+                    uploadFilesSequentially(files, index + 1);
+                }
+            };
+            
+            xhr.onerror = function() {
+                showNotification(`Ошибка загрузки ${file.name}: Соединение прервано`, 'error');
                 uploadFilesSequentially(files, index + 1);
-            } else {
-                showNotification(`Ошибка загрузки ${file.name}: ${xhr.responseText}`, 'error');
-                // Продолжаем загрузку остальных файлов
+            };
+            
+            xhr.ontimeout = function() {
+                showNotification(`Ошибка загрузки ${file.name}: Превышено время ожидания`, 'error');
                 uploadFilesSequentially(files, index + 1);
-            }
-        };
-        
-        xhr.onerror = function() {
-            showNotification(`Ошибка загрузки ${file.name}: Соединение прервано`, 'error');
-            // Продолжаем загрузку остальных файлов
-            uploadFilesSequentially(files, index + 1);
-        };
-        
-        xhr.ontimeout = function() {
-            showNotification(`Ошибка загрузки ${file.name}: Превышено время ожидания`, 'error');
-            // Продолжаем загрузку остальных файлов
-            uploadFilesSequentially(files, index + 1);
-        };
-        
-        xhr.timeout = 300000; // 5 минут
-        xhr.open('POST', '/api/files/upload');
-        xhr.send(fd);
+            };
+            
+            xhr.timeout = timeout;
+            xhr.open('POST', '/api/files/upload');
+            xhr.send(fd);
+        }
     }
     
-    function showUploadProgress(fileName, current, total) {
+    function showUploadProgress(fileName, current, total, fileSize) {
         let progressDiv = document.getElementById('uploadProgress');
         if (!progressDiv) {
             progressDiv = document.createElement('div');
@@ -572,27 +594,49 @@
                 padding: 15px;
                 box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 z-index: 1000;
-                min-width: 300px;
+                min-width: 350px;
             `;
             document.body.appendChild(progressDiv);
         }
         
         progressDiv.innerHTML = `
             <div style="margin-bottom: 10px; font-weight: bold;">Загрузка файлов (${current}/${total})</div>
-            <div style="margin-bottom: 5px; font-size: 14px;">${fileName}</div>
+            <div style="margin-bottom: 5px; font-size: 14px; word-break: break-all;">${fileName}</div>
+            <div style="margin-bottom: 5px; font-size: 12px; color: #666;">Размер: ${formatFileSize(fileSize)}</div>
             <div style="background: #f0f0f0; border-radius: 3px; overflow: hidden;">
                 <div id="uploadProgressBar" style="background: #007acc; height: 20px; width: 0%; transition: width 0.3s;"></div>
             </div>
             <div id="uploadProgressText" style="text-align: center; margin-top: 5px; font-size: 12px;">0%</div>
+            <div id="uploadSpeedText" style="text-align: center; margin-top: 3px; font-size: 11px; color: #666;"></div>
+            <div id="uploadSizeText" style="text-align: center; margin-top: 3px; font-size: 11px; color: #666;"></div>
         `;
     }
     
-    function updateUploadProgress(percent) {
+    function updateUploadProgress(percent, loaded, total, speed) {
         const progressBar = document.getElementById('uploadProgressBar');
         const progressText = document.getElementById('uploadProgressText');
+        const speedText = document.getElementById('uploadSpeedText');
+        const sizeText = document.getElementById('uploadSizeText');
+        
         if (progressBar && progressText) {
             progressBar.style.width = percent + '%';
             progressText.textContent = Math.round(percent) + '%';
+            
+            if (speedText && speed > 0) {
+                let speedStr = '';
+                if (speed > 1024 * 1024) {
+                    speedStr = (speed / 1024 / 1024).toFixed(1) + ' MB/s';
+                } else if (speed > 1024) {
+                    speedStr = (speed / 1024).toFixed(1) + ' KB/s';
+                } else {
+                    speedStr = speed.toFixed(0) + ' B/s';
+                }
+                speedText.textContent = speedStr;
+            }
+            
+            if (sizeText && loaded !== undefined && total !== undefined) {
+                sizeText.textContent = `${formatFileSize(loaded)} / ${formatFileSize(total)}`;
+            }
         }
     }
     
