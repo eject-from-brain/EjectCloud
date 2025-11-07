@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>EjectCloud - Вход</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .login-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo h1 {
+            color: #333;
+            margin: 0;
+            font-size: 28px;
+            font-weight: 300;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+        
+        input[type="email"], input[type="password"], input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+            box-sizing: border-box;
+        }
+        
+        input[type="email"]:focus, input[type="password"]:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .error {
+            color: #e74c3c;
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        .success {
+            color: #27ae60;
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        .change-password-form {
+            display: none;
+        }
+        
+        .profile-form {
+            display: none;
+        }
+        
+        .form-title {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-container">
+    <!-- Форма входа -->
+    <div id="loginForm">
+        <div class="logo">
+            <h1>EjectCloud</h1>
+        </div>
+        
+        <form onsubmit="login(event)">
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" id="email" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Пароль:</label>
+                <input type="password" id="password" required>
+            </div>
+            
+            <button type="submit" class="btn" id="loginBtn">Войти</button>
+            <div id="loginError" class="error"></div>
+        </form>
+    </div>
+    
+    <!-- Форма смены пароля -->
+    <div id="changePasswordForm" class="change-password-form">
+        <div class="form-title">Смена пароля</div>
+        <p style="text-align: center; color: #666; margin-bottom: 20px;">
+            Необходимо изменить пароль для продолжения работы
+        </p>
+        
+        <form onsubmit="changePassword(event)">
+            <div class="form-group">
+                <label for="currentPassword">Текущий пароль:</label>
+                <input type="password" id="currentPassword" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="newPassword">Новый пароль:</label>
+                <input type="password" id="newPassword" required minlength="6">
+            </div>
+            
+            <div class="form-group">
+                <label for="confirmPassword">Подтвердите пароль:</label>
+                <input type="password" id="confirmPassword" required minlength="6">
+            </div>
+            
+            <button type="submit" class="btn">Изменить пароль</button>
+            <div id="changePasswordError" class="error"></div>
+        </form>
+    </div>
+    
+    <!-- Форма обновления профиля (для админа) -->
+    <div id="profileForm" class="profile-form">
+        <div class="form-title">Обновление профиля</div>
+        <p style="text-align: center; color: #666; margin-bottom: 20px;">
+            Пожалуйста, обновите данные профиля
+        </p>
+        
+        <form onsubmit="updateProfile(event)">
+            <div class="form-group">
+                <label for="profileEmail">Email:</label>
+                <input type="email" id="profileEmail" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="displayName">Имя:</label>
+                <input type="text" id="displayName" required>
+            </div>
+            
+            <button type="submit" class="btn">Обновить профиль</button>
+            <div id="profileError" class="error"></div>
+        </form>
+    </div>
+</div>
+
+<script>
+let accessToken = null;
+let refreshToken = null;
+let currentUser = null;
+
+async function login(event) {
+    event.preventDefault();
+    
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const loginBtn = document.getElementById('loginBtn');
+    const errorDiv = document.getElementById('loginError');
+    
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Вход...';
+    errorDiv.textContent = '';
+    
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            accessToken = data.accessToken;
+            refreshToken = data.refreshToken;
+            
+            localStorage.setItem('eject_access_token', accessToken);
+            localStorage.setItem('eject_refresh_token', refreshToken);
+            
+            // Проверяем статус пользователя
+            await checkUserStatus();
+        } else {
+            errorDiv.textContent = data.error || 'Ошибка входа';
+        }
+    } catch (error) {
+        errorDiv.textContent = 'Ошибка соединения';
+    } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Войти';
+    }
+}
+
+async function checkUserStatus() {
+    try {
+        const response = await fetch(`/api/auth/validate?token=${accessToken}`);
+        const data = await response.json();
+        
+        if (data.ok) {
+            currentUser = data;
+            
+            if (data.isAdmin && (data.user === 'Administrator' || data.user === 'admin')) {
+                showChangePasswordForm();
+            } else if (data.mustChangePassword) {
+                showChangePasswordForm();
+            } else {
+                redirectToApp();
+            }
+        }
+    } catch (error) {
+        document.getElementById('loginError').textContent = 'Ошибка проверки статуса';
+    }
+}
+
+function showChangePasswordForm() {
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('changePasswordForm').style.display = 'block';
+    document.getElementById('currentPassword').value = document.getElementById('password').value;
+}
+
+function showProfileForm() {
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('changePasswordForm').style.display = 'none';
+    document.getElementById('profileForm').style.display = 'block';
+    document.getElementById('profileEmail').value = document.getElementById('email').value;
+    document.getElementById('displayName').value = currentUser.user;
+}
+
+async function changePassword(event) {
+    event.preventDefault();
+    
+    const currentPassword = document.getElementById('currentPassword').value;
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    const errorDiv = document.getElementById('changePasswordError');
+    
+    errorDiv.textContent = '';
+    
+    if (newPassword !== confirmPassword) {
+        errorDiv.textContent = 'Пароли не совпадают';
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        errorDiv.textContent = 'Пароль должен содержать минимум 6 символов';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `token=${accessToken}&currentPassword=${encodeURIComponent(currentPassword)}&newPassword=${encodeURIComponent(newPassword)}`
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (currentUser.isAdmin && (currentUser.user === 'Administrator' || currentUser.user === 'admin')) {
+                showProfileForm();
+            } else {
+                redirectToApp();
+            }
+        } else {
+            errorDiv.textContent = data.error || 'Ошибка смены пароля';
+        }
+    } catch (error) {
+        errorDiv.textContent = 'Ошибка соединения';
+    }
+}
+
+async function updateProfile(event) {
+    event.preventDefault();
+    
+    const email = document.getElementById('profileEmail').value;
+    const displayName = document.getElementById('displayName').value;
+    const errorDiv = document.getElementById('profileError');
+    
+    errorDiv.textContent = '';
+    
+    try {
+        const response = await fetch('/api/auth/update-profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `token=${accessToken}&email=${encodeURIComponent(email)}&displayName=${encodeURIComponent(displayName)}`
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            redirectToApp();
+        } else {
+            errorDiv.textContent = data.error || 'Ошибка обновления профиля';
+        }
+    } catch (error) {
+        errorDiv.textContent = 'Ошибка соединения';
+    }
+}
+
+function redirectToApp() {
+    if (currentUser.isAdmin) {
+        window.location.href = '/admin-panel.html';
+    } else {
+        window.location.href = '/';
+    }
+}
+
+// Проверяем, есть ли уже токены
+window.onload = function() {
+    accessToken = localStorage.getItem('eject_access_token');
+    refreshToken = localStorage.getItem('eject_refresh_token');
+    
+    if (accessToken) {
+        checkUserStatus();
+    }
+};
+</script>
+
+</body>
+</html>

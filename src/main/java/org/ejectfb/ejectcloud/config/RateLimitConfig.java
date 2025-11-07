@@ -19,19 +19,34 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RateLimitConfig extends OncePerRequestFilter {
     
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Bucket> loginBuckets = new ConcurrentHashMap<>();
     
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, 
                                   FilterChain filterChain) throws ServletException, IOException {
         
-        // Исключаем API из rate limiting для авторизованных пользователей
         String uri = request.getRequestURI();
+        String clientIp = getClientIP(request);
+        
+        // Строгое ограничение для логина
+        if (uri.equals("/api/auth/login") && "POST".equals(request.getMethod())) {
+            System.out.println("Login request from IP: " + clientIp);
+            Bucket loginBucket = getLoginBucket(clientIp);
+            if (!loginBucket.tryConsume(1)) {
+                System.out.println("Rate limit exceeded for IP: " + clientIp);
+                response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+                response.getWriter().write("Too many login attempts");
+                return;
+            }
+            System.out.println("Login request allowed for IP: " + clientIp);
+        }
+        
+        // Исключаем API из rate limiting для авторизованных пользователей
         if (uri.startsWith("/api/") && request.getParameter("token") != null) {
             filterChain.doFilter(request, response);
             return;
         }
         
-        String clientIp = getClientIP(request);
         Bucket bucket = getBucket(clientIp);
         
         if (bucket.tryConsume(1)) {
@@ -46,9 +61,21 @@ public class RateLimitConfig extends OncePerRequestFilter {
         return buckets.computeIfAbsent(clientIp, this::createBucket);
     }
     
+    private Bucket getLoginBucket(String clientIp) {
+        return loginBuckets.computeIfAbsent(clientIp, this::createLoginBucket);
+    }
+    
     private Bucket createBucket(String clientIp) {
-        // 100 запросов в минуту, пополнение каждые 600мс
+        // 100 запросов в минуту
         Bandwidth limit = Bandwidth.classic(100, Refill.intervally(100, Duration.ofMinutes(1)));
+        return Bucket.builder()
+                .addLimit(limit)
+                .build();
+    }
+    
+    private Bucket createLoginBucket(String clientIp) {
+        // 5 попыток логина в минуту
+        Bandwidth limit = Bandwidth.classic(5, Refill.intervally(5, Duration.ofMinutes(1)));
         return Bucket.builder()
                 .addLimit(limit)
                 .build();

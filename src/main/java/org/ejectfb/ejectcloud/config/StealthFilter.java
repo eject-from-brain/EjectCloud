@@ -21,26 +21,25 @@ public class StealthFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) request;
         HttpServletResponse resp = (HttpServletResponse) response;
         
-        // Разрешаем админские пути, статические ресурсы и публичные ссылки всегда
         String path = req.getRequestURI();
-        if (path.startsWith("/admin") || path.startsWith("/h2-console") || path.startsWith("/share/") ||
-            path.endsWith(".js") || path.endsWith(".css") || path.endsWith(".html") ||
-            path.endsWith(".ico") || path.equals("/")) {
+        
+        // Разрешаем статические ресурсы, логин и публичные ссылки
+        if (path.startsWith("/share/") || path.endsWith(".js") || path.endsWith(".css") || 
+            path.endsWith(".html") || path.endsWith(".ico") || path.equals("/") ||
+            path.startsWith("/api/auth/") || path.startsWith("/login")) {
             chain.doFilter(request, response);
             return;
         }
         
-        // Проверяем наличие валидного токена в запросе
-        String token = req.getParameter("token");
-        
-        if (token != null && storageService.isValidToken(token)) {
-            // Есть валидный токен - обновляем активность и пропускаем запрос
-            storageService.touchToken(token);
-            chain.doFilter(request, response);
-            return;
+        // Для API запросов требуем токен
+        if (path.startsWith("/api/")) {
+            String token = req.getParameter("token");
+            if (token == null) {
+                resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
         }
         
-        // Для всех остальных API запросов без валидного токена - 404
-        resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        chain.doFilter(request, response);
     }
 }

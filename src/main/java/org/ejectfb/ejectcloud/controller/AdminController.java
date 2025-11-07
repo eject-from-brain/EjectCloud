@@ -3,192 +3,182 @@ package org.ejectfb.ejectcloud.controller;
 import org.ejectfb.ejectcloud.model.SystemStats;
 import org.ejectfb.ejectcloud.model.UserData;
 import org.ejectfb.ejectcloud.service.FileStorageService;
+import org.ejectfb.ejectcloud.service.JwtService;
 import org.ejectfb.ejectcloud.service.SystemMonitorService;
-import org.springframework.beans.factory.annotation.Value;
+import org.ejectfb.ejectcloud.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.IOException;
-import java.nio.file.*;
 import java.util.*;
 
 @RestController
 @RequestMapping("/admin/api")
 public class AdminController {
+    
+    private final UserService userService;
+    private final JwtService jwtService;
     private final FileStorageService storageService;
     private final SystemMonitorService monitorService;
-    
-    @Value("${ejectcloud.data-dir:./Data}")
-    private String dataDir;
-    
-    @Value("${ejectcloud.default.quota:1073741824}")
-    private long defaultQuota;
 
-    public AdminController(FileStorageService storageService, SystemMonitorService monitorService) {
+    public AdminController(UserService userService, JwtService jwtService, 
+                          FileStorageService storageService, SystemMonitorService monitorService) {
+        this.userService = userService;
+        this.jwtService = jwtService;
         this.storageService = storageService;
         this.monitorService = monitorService;
     }
 
+    private boolean isValidAdminToken(String token) {
+        String telegramId = jwtService.validateAccessToken(token);
+        if (telegramId != null) {
+            UserData user = userService.findUserByTelegramId(telegramId);
+            return user != null && user.isAdmin();
+        }
+        return false;
+    }
+
     @GetMapping("/users")
-    public ResponseEntity<?> listUsers(@RequestParam(required = false) String token) {
+    public ResponseEntity<?> listUsers(@RequestParam String token) {
         if (!isValidAdminToken(token)) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
-        return ResponseEntity.ok(getUsersList());
+        
+        List<Map<String, Object>> users = new ArrayList<>();
+        for (UserData user : userService.getAllUsers()) {
+            Map<String, Object> userMap = new HashMap<>();
+            long usedBytes = storageService.calculateUsedBytes(user.getId());
+            userMap.put("id", user.getId());
+            userMap.put("email", user.getEmail());
+            userMap.put("displayName", user.getDisplayName());
+            userMap.put("telegramId", user.getTelegramId());
+            userMap.put("quotaBytes", user.getQuotaBytes());
+            userMap.put("usedBytes", usedBytes);
+            userMap.put("usagePercent", user.getQuotaBytes() > 0 ? (double) usedBytes / user.getQuotaBytes() * 100 : 0);
+            userMap.put("createdAt", user.getCreatedAt());
+            userMap.put("isAdmin", user.isAdmin());
+            users.add(userMap);
+        }
+        return ResponseEntity.ok(users);
     }
 
     @PostMapping("/users")
-    public ResponseEntity<?> createUser(@RequestParam(required = false) String token,
-                                       @RequestParam String telegramId, 
-                                       @RequestParam String username,
+    public ResponseEntity<?> createUser(@RequestParam String token,
+                                       @RequestParam String email,
+                                       @RequestParam String displayName,
+                                       @RequestParam String telegramId,
                                        @RequestParam(required = false) Long quotaBytes) {
         if (!isValidAdminToken(token)) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
-        long quota = quotaBytes != null ? quotaBytes : defaultQuota;
-        UserData userData = storageService.getOrCreateUser(telegramId, username, quota);
+        
+        if (userService.findUserByEmail(email) != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "User already exists"));
+        }
+        
+        long quota = quotaBytes != null ? quotaBytes : 1073741824L;
+        UserData userData = userService.createUser(email, email, displayName, telegramId, false);
+        userData.setQuotaBytes(quota);
+        userService.saveUserData(userData.getId(), userData);
+        
         return ResponseEntity.ok(userData);
     }
 
     @PostMapping("/quota")
-    public ResponseEntity<?> updateQuota(@RequestParam(required = false) String token,
-                                        @RequestParam String telegramId, 
+    public ResponseEntity<?> updateQuota(@RequestParam String token,
+                                        @RequestParam String userId,
                                         @RequestParam long quotaBytes) {
         if (!isValidAdminToken(token)) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
-        try {
-            UserData userData = loadUserData(telegramId);
-            if (userData != null) {
-                userData.setQuotaBytes(quotaBytes);
-                storageService.saveUserData(telegramId, userData);
-                return ResponseEntity.ok(Map.of("success", true));
-            }
-            return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        
+        UserData userData = userService.loadUserData(userId);
+        if (userData != null) {
+            userData.setQuotaBytes(quotaBytes);
+            userService.saveUserData(userId, userData);
+            return ResponseEntity.ok(Map.of("success", true));
         }
+        return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
     }
     
-    @GetMapping("/system/current")
-    public ResponseEntity<?> getCurrentSystemStats(@RequestParam(required = false) String token) {
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestParam String token,
+                                          @RequestParam String userId) {
         if (!isValidAdminToken(token)) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
-        return ResponseEntity.ok(monitorService.getCurrentStats());
+        
+        userService.resetPassword(userId);
+        return ResponseEntity.ok(Map.of("success", true));
     }
     
-    @GetMapping("/system/history")
-    public ResponseEntity<?> getSystemHistory(@RequestParam(required = false) String token,
-                                             @RequestParam(defaultValue = "1h") String period) {
+    @PostMapping("/users/edit")
+    public ResponseEntity<?> editUser(@RequestParam String token,
+                                     @RequestParam String userId,
+                                     @RequestParam String email,
+                                     @RequestParam String displayName,
+                                     @RequestParam String telegramId,
+                                     @RequestParam long quotaBytes) {
         if (!isValidAdminToken(token)) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
-        return ResponseEntity.ok(monitorService.getFilteredStats(period));
+        
+        userService.updateUser(userId, email, displayName, telegramId, quotaBytes);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+    
+    @PostMapping("/users/delete")
+    public ResponseEntity<?> deleteUser(@RequestParam String token,
+                                       @RequestParam String userId) {
+        if (!isValidAdminToken(token)) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        
+        userService.deleteUser(userId);
+        return ResponseEntity.ok(Map.of("success", true));
     }
     
     @GetMapping("/dashboard")
-    public ResponseEntity<?> getDashboard(@RequestParam(required = false) String token) {
+    public ResponseEntity<?> getDashboard(@RequestParam String token) {
         if (!isValidAdminToken(token)) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
+        
         Map<String, Object> dashboard = new HashMap<>();
         
-        // Системная информация
         SystemStats.StatsEntry current = monitorService.getCurrentStats();
         dashboard.put("system", current);
         
-        // Статистика пользователей
-        List<Map<String, Object>> users = getUsersList();
-        long totalUsed = users.stream().mapToLong(u -> (Long) u.get("usedBytes")).sum();
-        long totalQuota = users.stream().mapToLong(u -> (Long) u.get("quotaBytes")).sum();
+        List<UserData> users = userService.getAllUsers();
+        long totalUsed = users.stream().mapToLong(u -> storageService.calculateUsedBytes(u.getId())).sum();
+        long totalQuota = users.stream().mapToLong(UserData::getQuotaBytes).sum();
+        
+        // Подготавливаем список пользователей с данными об использовании
+        List<Map<String, Object>> usersList = new ArrayList<>();
+        for (UserData user : users) {
+            Map<String, Object> userMap = new HashMap<>();
+            long usedBytes = storageService.calculateUsedBytes(user.getId());
+            userMap.put("username", user.getDisplayName());
+            userMap.put("usedBytes", usedBytes);
+            userMap.put("quotaBytes", user.getQuotaBytes());
+            usersList.add(userMap);
+        }
         
         dashboard.put("users", Map.of(
             "count", users.size(),
             "totalUsed", totalUsed,
             "totalQuota", totalQuota,
-            "list", users
+            "list", usersList
         ));
         
         return ResponseEntity.ok(dashboard);
     }
     
-    private boolean isValidAdminToken(String token) {
-        if (token == null || token.isEmpty()) {
-            return false;
-        }
-        
-        if (!storageService.isValidToken(token)) {
-            return false;
-        }
-        
-        // Проверяем, что токен принадлежит админу
-        String telegramId = storageService.getTelegramIdByToken(token);
-        return isAdmin(telegramId);
-    }
-    
-    @Value("${telegram.admin.chatid:}")
-    private String adminChatId;
-    
-    private boolean isAdmin(String telegramId) {
-        return adminChatId != null && adminChatId.equals(telegramId);
-    }
-
-    private List<Map<String, Object>> getUsersList() {
-        List<Map<String, Object>> users = new ArrayList<>();
-        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(Paths.get(dataDir))) {
-            for (Path userDir : dirs) {
-                if (Files.isDirectory(userDir)) {
-                    String telegramId = userDir.getFileName().toString();
-                    UserData userData = loadUserData(telegramId);
-                    if (userData != null) {
-                        Map<String, Object> userMap = new HashMap<>();
-                        userMap.put("telegramId", userData.getTelegramId());
-                        userMap.put("username", userData.getUsername());
-                        userMap.put("quotaBytes", userData.getQuotaBytes());
-                        userMap.put("usedBytes", storageService.calculateUsedBytes(telegramId));
-                        userMap.put("createdAt", userData.getCreatedAt());
-                        users.add(userMap);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            // ignore
-        }
-        return users;
-    }
-
-    @PostMapping("/users/delete")
-    public ResponseEntity<?> deleteUser(@RequestParam(required = false) String token,
-                                       @RequestParam String telegramId) {
+    @GetMapping("/system/history")
+    public ResponseEntity<?> getSystemHistory(@RequestParam String token,
+                                             @RequestParam(defaultValue = "1h") String period) {
         if (!isValidAdminToken(token)) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
-        
-        try {
-            Path userDir = Paths.get(dataDir, telegramId);
-            if (Files.exists(userDir)) {
-                Files.walk(userDir)
-                    .sorted((a, b) -> b.compareTo(a))
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                        } catch (IOException e) {
-                            // ignore
-                        }
-                    });
-            }
-            return ResponseEntity.ok(Map.of("success", true));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    private UserData loadUserData(String telegramId) {
-        try {
-            return storageService.getOrCreateUser(telegramId, "user_" + telegramId, defaultQuota);
-        } catch (Exception e) {
-            return null;
-        }
+        return ResponseEntity.ok(monitorService.getFilteredStats(period));
     }
 }

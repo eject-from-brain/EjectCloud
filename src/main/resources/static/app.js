@@ -1,6 +1,8 @@
 (function(){
     const params = new URLSearchParams(window.location.search);
-    let token = params.get('token') || localStorage.getItem('eject_token');
+    let oldToken = params.get('token');
+    let accessToken = localStorage.getItem('eject_access_token');
+    let refreshToken = localStorage.getItem('eject_refresh_token');
 
     const $login = document.getElementById('login');
     const $app = document.getElementById('app');
@@ -17,11 +19,10 @@
     let trashFiles = [];
     let trashFolders = [];
     let isInTrash = false;
-    let inactivitySeconds = 1800; // 30 минут
-    let lastActivity = Date.now();
     let selectedMoveFile = null;
     let selectedTargetFolder = '';
     let confirmCallback = null;
+    let refreshInterval = null;
     
     const $quotaProgress = document.getElementById('quotaProgress');
     const $quotaText = document.getElementById('quotaText');
@@ -118,55 +119,102 @@
     };
 
     function doValidate() {
-        console.log('Validating token:', token);
-        fetch(`/auth/validate?token=${encodeURIComponent(token)}`)
+        if (accessToken) {
+            console.log('Validating JWT token');
+            fetch(`/api/auth/validate?token=${encodeURIComponent(accessToken)}`)
+                .then(r => r.json())
+                .then(j => {
+                    if (j.ok) {
+                        $who.textContent = j.user;
+                        
+                        // Показываем кнопку админ-панели для админов
+                        if (j.isAdmin) {
+                            document.getElementById('adminPanelBtn').style.display = 'inline-block';
+                        }
+                        
+                        showApp();
+                        startTokenRefresh();
+                        loadFiles();
+                    } else {
+                        tryRefreshToken();
+                    }
+                }).catch(e => {
+                    console.error('Validation error:', e);
+                    tryRefreshToken();
+                });
+        } else if (oldToken) {
+            convertOldToken();
+        } else {
+            showLogin();
+        }
+    }
+    
+    function convertOldToken() {
+        console.log('Converting old token to JWT');
+        fetch(`/auth/login?token=${encodeURIComponent(oldToken)}`, { method: 'POST' })
             .then(r => {
-                console.log('Response status:', r.status);
+                if (!r.ok) throw new Error('Invalid token');
                 return r.json();
             })
-            .then(j => {
-                console.log('Response data:', j);
-                if (j.ok) {
-                    localStorage.setItem('eject_token', token);
-                    $who.textContent = j.user;
-                    showApp();
-                    touch();
-                    loadFiles();
-                } else {
-                    showNotification('Ссылка устарела или недействительна. Получите новую ссылку через /link в боте.', 'error');
-                    showLogin();
-                }
-            }).catch(e => {
-            console.error('Validation error:', e);
-            showNotification('Ошибка соединения: ' + e.message, 'error');
+            .then(data => {
+                accessToken = data.accessToken;
+                refreshToken = data.refreshToken;
+                localStorage.setItem('eject_access_token', accessToken);
+                localStorage.setItem('eject_refresh_token', refreshToken);
+                localStorage.removeItem('eject_token');
+                
+                $who.textContent = data.telegramId;
+                showApp();
+                startTokenRefresh();
+                loadFiles();
+            })
+            .catch(e => {
+                console.error('Token conversion error:', e);
+                showNotification('Ссылка устарела или недействительна. Получите новую ссылку через /link в боте.', 'error');
+                showLogin();
+            });
+    }
+    
+    function tryRefreshToken() {
+        if (!refreshToken) {
             showLogin();
-        });
-    }
-
-    function touch() {
-        lastActivity = Date.now();
-        fetch(`/auth/validate?token=${encodeURIComponent(token)}`).catch(()=>{});
-    }
-
-    // Таймер неактивности
-    setInterval(() => {
-        const remaining = Math.max(0, inactivitySeconds - Math.floor((Date.now()-lastActivity)/1000));
-        const m = Math.floor(remaining/60), s = remaining%60;
-        $timer.textContent = `${m}:${s.toString().padStart(2,'0')}`;
-        if (remaining <= 0) {
-            logout();
+            return;
         }
-    }, 1000);
+        
+        fetch(`/api/auth/refresh?refreshToken=${encodeURIComponent(refreshToken)}`, { method: 'POST' })
+            .then(r => {
+                if (!r.ok) throw new Error('Refresh failed');
+                return r.json();
+            })
+            .then(data => {
+                accessToken = data.accessToken;
+                localStorage.setItem('eject_access_token', accessToken);
+                doValidate();
+            })
+            .catch(e => {
+                console.error('Refresh error:', e);
+                logout();
+            });
+    }
+    
+    function startTokenRefresh() {
+        if (refreshInterval) clearInterval(refreshInterval);
+        
+        // Обновляем токен каждые 10 минут
+        refreshInterval = setInterval(() => {
+            tryRefreshToken();
+        }, 10 * 60 * 1000);
+        
+        // Скрываем таймер
+        $timer.style.display = 'none';
+    }
 
-    // Отслеживание активности
-    ['mousemove','keydown','click','touchstart'].forEach(evt => {
-        window.addEventListener(evt, () => {
-            lastActivity = Date.now();
-            fetch(`/auth/validate?token=${encodeURIComponent(token)}`).catch(()=>{});
-        });
-    });
+    function getAuthToken() {
+        return accessToken;
+    }
 
     function loadFiles() {
+        const token = getAuthToken();
         Promise.all([
             fetch(`/api/files/list?token=${encodeURIComponent(token)}`).then(r => r.json()),
             fetch(`/api/files/folders?token=${encodeURIComponent(token)}`).then(r => r.json()),
@@ -416,6 +464,7 @@
         if (files.length === 0) return;
 
         // Проверяем квоту перед загрузкой
+        const token = getAuthToken();
         fetch(`/api/files/quota?token=${encodeURIComponent(token)}`)
             .then(r => {
                 if (!r.ok) throw new Error('Ошибка получения информации о квоте');
@@ -457,7 +506,7 @@
         
         const fd = new FormData();
         fd.append('file', file);
-        fd.append('token', token);
+        fd.append('token', getAuthToken());
         if (currentPath) fd.append('path', currentPath);
 
         const xhr = new XMLHttpRequest();
@@ -611,6 +660,7 @@
             }
 
             const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+            const token = getAuthToken();
             
             fetch(`/api/files/mkdir?token=${encodeURIComponent(token)}&path=${encodeURIComponent(folderPath)}`, {
                 method: 'POST'
@@ -626,6 +676,7 @@
     window.deleteFolder = function(folderPath) {
         const folderName = folderPath.split('/').pop();
         showConfirm(`Переместить папку "${folderName}" в корзину?`, () => {
+            const token = getAuthToken();
             fetch(`/api/files/folder?path=${encodeURIComponent(folderPath)}&token=${encodeURIComponent(token)}`, {
                 method: 'DELETE'
             })
@@ -638,10 +689,12 @@
     };
 
     window.downloadFile = function(fileId) {
+        const token = getAuthToken();
         window.open(`/api/files/download/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`);
     };
 
     window.shareFile = function(fileId) {
+        const token = getAuthToken();
         fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
             method: 'POST'
         })
@@ -660,6 +713,7 @@
     };
     
     window.copyExistingShare = function(fileId) {
+        const token = getAuthToken();
         fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
             method: 'POST'
         })
@@ -677,6 +731,7 @@
     
     window.deleteShareLink = function(fileId) {
         showConfirm('Удалить ссылку на файл?', () => {
+            const token = getAuthToken();
             fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
                 method: 'DELETE'
             })
@@ -691,6 +746,7 @@
     window.deleteFile = function(fileId) {
         const fileName = fileId.split('/').pop();
         showConfirm(`Переместить файл "${fileName}" в корзину?`, () => {
+            const token = getAuthToken();
             fetch(`/api/files/delete?id=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
                 method: 'DELETE'
             })
@@ -703,6 +759,7 @@
     };
 
     function moveFile(fileId, targetFolder) {
+        const token = getAuthToken();
         fetch(`/api/files/move?fileId=${encodeURIComponent(fileId)}&targetFolder=${encodeURIComponent(targetFolder)}&token=${encodeURIComponent(token)}`, {
             method: 'POST'
         })
@@ -715,11 +772,29 @@
     }
 
     function logout() {
-        localStorage.removeItem('eject_token');
-        token = null;
+        if (refreshToken) {
+            fetch(`/api/auth/logout?refreshToken=${encodeURIComponent(refreshToken)}`, { method: 'POST' })
+                .catch(() => {}); // Игнорируем ошибки
+        }
+        
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
+        
+        localStorage.removeItem('eject_access_token');
+        localStorage.removeItem('eject_refresh_token');
+        accessToken = null;
+        refreshToken = null;
         showLogin();
-        showNotification('Сессия завершена. Получите новую ссылку через /link в боте.', 'warning');
+        showNotification('Вы вышли из системы. Получите новую ссылку через /link в боте.', 'warning');
     }
+    
+    window.logout = logout;
+    
+    window.openAdminPanel = function() {
+        window.location.href = '/admin-panel.html';
+    };
 
     function showTrash() {
         $currentPath.textContent = currentPath ? `🗑️ Корзина / ${currentPath}` : '🗑️ Корзина';
@@ -841,6 +916,7 @@
     
     window.clearTrash = function() {
         showConfirm('Очистить корзину? Все файлы будут удалены навсегда!', () => {
+            const token = getAuthToken();
             fetch(`/api/files/trash/clear?token=${encodeURIComponent(token)}`, {
                 method: 'DELETE'
             })
@@ -854,6 +930,7 @@
     
     window.deleteFromTrash = function(itemId) {
         showConfirm('Удалить навсегда? Это действие нельзя отменить!', () => {
+            const token = getAuthToken();
             fetch(`/api/files/trash/${encodeURIComponent(itemId)}?token=${encodeURIComponent(token)}`, {
                 method: 'DELETE'
             })
@@ -868,6 +945,7 @@
     window.restoreFromTrash = function(itemId) {
         const itemName = itemId.split('/').pop();
         showConfirm(`Восстановить "${itemName}"?`, () => {
+            const token = getAuthToken();
             fetch(`/api/files/trash/restore/${encodeURIComponent(itemId)}?token=${encodeURIComponent(token)}`, {
                 method: 'POST'
             })
@@ -898,10 +976,11 @@
         }
     }
 
-    // Автоматическая проверка токена
-    if (token) {
-        doValidate();
-    } else {
-        showLogin();
+    // Проверяем аутентификацию
+    if (!accessToken) {
+        window.location.href = '/login.html';
+        return;
     }
+    
+    doValidate();
 })();

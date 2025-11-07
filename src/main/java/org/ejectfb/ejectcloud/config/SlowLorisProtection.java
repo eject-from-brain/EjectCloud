@@ -12,7 +12,7 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Component
+// @Component
 @Order(1)
 public class SlowLorisProtection extends OncePerRequestFilter {
     

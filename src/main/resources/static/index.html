@@ -223,8 +223,7 @@
 
 <div id="login">
     <h2>EjectCloud</h2>
-    <p>Для доступа к файловому хранилищу получите ссылку через Telegram бота.</p>
-    <p>Отправьте боту команду <code>/link</code> для получения персональной ссылки.</p>
+    <p>Перенаправление на страницу входа...</p>
 </div>
 
 <div id="app" class="hidden">
@@ -248,12 +247,11 @@
                     <span id="quotaText" style="font-size: 12px; white-space: nowrap;"></span>
                 </div>
                 
-                <span>
-                    Пользователь: <span id="who"></span> | 
-                    Сессия: <span id="timer"></span>
-                </span>
+                <span id="who"></span>
+                <span id="timer"></span>
                 
-
+                <button id="adminPanelBtn" onclick="openAdminPanel()" style="background: #28a745; color: white; display: none;" title="Админ-панель">🔧 Админ</button>
+                <button onclick="logout()" style="background: #dc3545; color: white;" title="Выйти">🚪 Выход</button>
             </div>
         </div>
         

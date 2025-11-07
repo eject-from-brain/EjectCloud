@@ -25,6 +25,16 @@ public class FileStorageService {
     @Value("${ejectcloud.share.expire-hours:24}")
     private int shareExpireHours;
     
+    private final UserService userService;
+    
+    public FileStorageService(UserService userService) {
+        this.userService = userService;
+    }
+    
+    public UserService getUserService() {
+        return userService;
+    }
+    
     private final Map<String, String> activeTokens = new ConcurrentHashMap<>();
     private final Map<String, Instant> tokenActivity = new ConcurrentHashMap<>();
     
@@ -121,15 +131,15 @@ public class FileStorageService {
         return Files.exists(userFile);
     }
     
-    public UserData getOrCreateUser(String telegramId, String username, long quotaBytes) {
-        UserData userData = loadUserData(telegramId);
+    public UserData getOrCreateUser(String userId, String username, long quotaBytes) {
+        UserData userData = loadUserData(userId);
         if (userData == null) {
             userData = new UserData();
-            userData.setTelegramId(telegramId);
-            userData.setUsername(username);
+            userData.setId(userId);
+            userData.setDisplayName(username);
             userData.setQuotaBytes(quotaBytes);
             userData.setCreatedAt(Instant.now().toString());
-            saveUserData(telegramId, userData);
+            saveUserData(userId, userData);
         }
         return userData;
     }

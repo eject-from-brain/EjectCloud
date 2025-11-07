@@ -233,8 +233,9 @@
         <div class="toolbar">
             <h2 id="pageTitle">Дашборд</h2>
             <div style="display: flex; align-items: center; gap: 15px;">
-                <span>Админ: <span id="who"></span></span>
-                <span>Сессия: <span id="timer"></span></span>
+                <span id="who"></span>
+                <span id="timer"></span>
+                <button onclick="openUserInterface()" style="background: #3498db; color: white;">🏠 Пользовательский интерфейс</button>
                 <button onclick="logout()">Выход</button>
             </div>
         </div>
@@ -314,26 +315,36 @@
             <div id="tab-users" class="hidden">
                 <div class="card" style="margin-bottom: 20px;">
                     <h3>Создать пользователя</h3>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <input id="newTelegramId" placeholder="Telegram ID" />
-                        <input id="newUsername" placeholder="Username" />
-                        <input id="newQuota" type="number" placeholder="Квота (MB)" value="1024" />
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
+                        <div>
+                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Email адрес</label>
+                            <input id="newEmail" type="email" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Отображаемое имя</label>
+                            <input id="newDisplayName" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">ID в Telegram</label>
+                            <input id="newTelegramId" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Квота (MB)</label>
+                            <input id="newQuota" type="number" value="1024" style="width: 100%;" />
+                        </div>
                         <button onclick="createUser()">Создать</button>
                     </div>
                 </div>
                 
                 <div class="card">
                     <h3>Управление пользователями</h3>
-                    <button onclick="loadUsers()" style="margin-bottom: 15px;">🔄 Обновить</button>
                     <table id="usersTable">
                         <thead>
                             <tr>
+                                <th>Имя</th>
+                                <th>Email</th>
                                 <th>Telegram ID</th>
-                                <th>Username</th>
-                                <th>Квота (MB)</th>
-                                <th>Использовано (MB)</th>
-                                <th>Свободно (%)</th>
-                                <th>Создан</th>
+                                <th>Квота</th>
                                 <th>Действия</th>
                             </tr>
                         </thead>
@@ -413,80 +424,155 @@
     </div>
 </div>
 
+<!-- Модальное окно редактирования пользователя -->
+<div id="editUserModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+    <div style="background-color: white; margin: 10% auto; padding: 20px; border-radius: 8px; width: 80%; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
+            <h3 style="margin: 0; color: #2c3e50;">Редактирование пользователя</h3>
+            <span onclick="closeEditUserModal()" style="font-size: 24px; font-weight: bold; cursor: pointer; color: #999;">&times;</span>
+        </div>
+        <div style="display: grid; gap: 15px;">
+            <div>
+                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Email адрес</label>
+                <input id="editEmail" type="email" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+            </div>
+            <div>
+                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Отображаемое имя</label>
+                <input id="editDisplayName" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+            </div>
+            <div>
+                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">ID в Telegram</label>
+                <input id="editTelegramId" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+            </div>
+            <div>
+                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Квота (MB)</label>
+                <input id="editQuota" type="number" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+            </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+            <button onclick="closeEditUserModal()">Отмена</button>
+            <button onclick="saveUserEdit()" style="background: #007acc; color: white;">Сохранить</button>
+        </div>
+    </div>
+</div>
+
 <script>
 let currentUser = null;
-let sessionTimer = null;
-let sessionStart = null;
-let inactivityTimer = null;
-let lastActivity = Date.now();
+let accessToken = null;
+let refreshToken = null;
+let refreshInterval = null;
 
 // Проверка токена при загрузке
 window.onload = function() {
     const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    const oldToken = urlParams.get('token');
     
-    if (token) {
-        validateToken(token);
+    accessToken = localStorage.getItem('eject_access_token');
+    refreshToken = localStorage.getItem('eject_refresh_token');
+    
+    if (accessToken) {
+        validateToken();
     } else {
-        showError();
+        window.location.href = '/login.html';
     }
 };
 
-function validateToken(token) {
-    fetch('/auth/validate?token=' + token)
-        .then(r => r.json())
+function convertOldToken(oldToken) {
+    fetch('/auth/login?token=' + oldToken, { method: 'POST' })
+        .then(r => {
+            if (!r.ok) throw new Error('Invalid token');
+            return r.json();
+        })
         .then(data => {
-            if (data.ok) {
-                localStorage.setItem('adminToken', token);
-                currentUser = data.user;
-                document.getElementById('who').textContent = currentUser;
-                document.getElementById('app').classList.remove('hidden');
-                
-                sessionStart = Date.now();
-                startSessionTimer();
-                loadDashboard();
-                setInterval(loadDashboard, 30000);
-            } else {
-                showError();
-            }
+            accessToken = data.accessToken;
+            refreshToken = data.refreshToken;
+            localStorage.setItem('admin_access_token', accessToken);
+            localStorage.setItem('admin_refresh_token', refreshToken);
+            
+            currentUser = data.telegramId;
+            document.getElementById('who').textContent = currentUser;
+            document.getElementById('app').classList.remove('hidden');
+            
+            startTokenRefresh();
+            loadDashboard();
+            setInterval(loadDashboard, 30000);
         })
         .catch(e => showError());
 }
 
-function showError() {
-    document.getElementById('error').classList.remove('hidden');
-    document.getElementById('app').classList.add('hidden');
-    localStorage.removeItem('adminToken');
+function validateToken() {
+    fetch('/api/auth/validate?token=' + accessToken)
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                currentUser = data.user;
+                document.getElementById('who').textContent = currentUser;
+                document.getElementById('app').classList.remove('hidden');
+                
+                startTokenRefresh();
+                loadDashboard();
+                setInterval(loadDashboard, 30000);
+            } else {
+                tryRefreshToken();
+            }
+        })
+        .catch(e => tryRefreshToken());
 }
 
-function startSessionTimer() {
-    sessionTimer = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
-        const minutes = Math.floor(elapsed / 60);
-        const seconds = elapsed % 60;
-        document.getElementById('timer').textContent = 
-            `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        
-        // Проверка бездействия (10 минут)
-        if (Date.now() - lastActivity > 600000) {
-            logout();
-        }
-    }, 1000);
+function tryRefreshToken() {
+    if (!refreshToken) {
+        showError();
+        return;
+    }
     
-    // Отслеживание активности
-    ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'].forEach(event => {
-        document.addEventListener(event, () => {
-            lastActivity = Date.now();
-        }, true);
-    });
+    fetch('/api/auth/refresh?refreshToken=' + refreshToken, { method: 'POST' })
+        .then(r => {
+            if (!r.ok) throw new Error('Refresh failed');
+            return r.json();
+        })
+        .then(data => {
+            accessToken = data.accessToken;
+            localStorage.setItem('eject_access_token', accessToken);
+            validateToken();
+        })
+        .catch(e => {
+            console.error('Refresh error:', e);
+            logout();
+        });
+}
+
+function startTokenRefresh() {
+    if (refreshInterval) clearInterval(refreshInterval);
+    
+    // Обновляем токен каждые 10 минут
+    refreshInterval = setInterval(() => {
+        tryRefreshToken();
+    }, 10 * 60 * 1000);
+    
+    // Скрываем таймер
+    document.getElementById('timer').style.display = 'none';
+}
+
+function showError() {
+    window.location.href = '/login.html';
 }
 
 function logout() {
-    if (sessionTimer) {
-        clearInterval(sessionTimer);
+    if (refreshToken) {
+        fetch('/api/auth/logout?refreshToken=' + refreshToken, { method: 'POST' })
+            .catch(() => {});
     }
-    localStorage.removeItem('adminToken');
-    showError();
+    
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+    
+    localStorage.removeItem('eject_access_token');
+    localStorage.removeItem('eject_refresh_token');
+    accessToken = null;
+    refreshToken = null;
+    window.location.href = '/login.html';
 }
 
 function showTab(tabName) {
@@ -525,16 +611,12 @@ function showTab(tabName) {
 }
 
 function loadDashboard() {
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
+    if (!accessToken) {
         logout();
         return;
     }
     
-    // Обновляем активность
-    lastActivity = Date.now();
-    
-    fetch('/admin/api/dashboard?token=' + token)
+    fetch('/admin/api/dashboard?token=' + accessToken)
         .then(r => {
             if (r.status === 401) {
                 logout();
@@ -605,15 +687,12 @@ function updateTopUsers(usersList) {
 }
 
 function loadUsers() {
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
+    if (!accessToken) {
         logout();
         return;
     }
     
-    lastActivity = Date.now();
-    
-    fetch('/admin/api/users?token=' + token)
+    fetch('/admin/api/users?token=' + accessToken)
         .then(r => {
             if (r.status === 401) {
                 logout();
@@ -630,19 +709,24 @@ function loadUsers() {
                 const row = tbody.insertRow();
                 const quotaMB = Math.round(user.quotaBytes / 1024 / 1024);
                 const usedMB = Math.round(user.usedBytes / 1024 / 1024);
-                const freePercent = quotaMB > 0 ? (((quotaMB - usedMB) / quotaMB) * 100).toFixed(1) : 100;
+                const usagePercent = user.usagePercent || 0;
                 
                 row.innerHTML = `
-                    <td>${user.telegramId}</td>
-                    <td>${user.username}</td>
-                    <td>${quotaMB}</td>
-                    <td>${usedMB}</td>
-                    <td>${freePercent}%</td>
-                    <td>${new Date(user.createdAt).toLocaleDateString()}</td>
+                    <td>${user.displayName}</td>
+                    <td>${user.email}</td>
+                    <td>${user.telegramId || '-'}</td>
                     <td>
-                        <input type="number" id="quota_${user.telegramId}" value="${quotaMB}" style="width:80px" />
-                        <button onclick="updateQuota('${user.telegramId}')">Изменить</button>
-                        <button class="danger" onclick="deleteUser('${user.telegramId}', '${user.username}')">Удалить</button>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 100px; height: 20px; background: #f0f0f0; border-radius: 10px; overflow: hidden;">
+                                <div style="height: 100%; background: ${usagePercent > 90 ? '#dc3545' : usagePercent > 70 ? '#ffc107' : '#28a745'}; width: ${Math.min(100, usagePercent)}%; transition: width 0.3s;"></div>
+                            </div>
+                            <span style="font-size: 12px; white-space: nowrap;">${usedMB} MB / ${quotaMB} MB</span>
+                        </div>
+                    </td>
+                    <td>
+                        <button onclick="openEditUserModal('${user.id}', '${user.email}', '${user.displayName}', '${user.telegramId}', ${quotaMB})" style="background: #007acc; color: white; margin-right: 5px;">Редактировать</button>
+                        <button onclick="resetPassword('${user.id}')" style="background: #ffc107; color: black; margin-right: 5px;">Сброс пароля</button>
+                        <button class="danger" onclick="deleteUser('${user.id}', '${user.displayName}')">Удалить</button>
                     </td>
                 `;
             });
@@ -651,25 +735,26 @@ function loadUsers() {
 }
 
 function createUser() {
+    const email = document.getElementById('newEmail').value;
+    const displayName = document.getElementById('newDisplayName').value;
     const telegramId = document.getElementById('newTelegramId').value;
-    const username = document.getElementById('newUsername').value;
     const quotaMB = document.getElementById('newQuota').value;
     
-    if (!telegramId || !username || !quotaMB) {
+    if (!email || !displayName || !telegramId || !quotaMB) {
         alert('Заполните все поля');
         return;
     }
     
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
+    if (!accessToken) {
         logout();
         return;
     }
     
     const params = new URLSearchParams();
-    params.append('token', token);
+    params.append('token', accessToken);
+    params.append('email', email);
+    params.append('displayName', displayName);
     params.append('telegramId', telegramId);
-    params.append('username', username);
     params.append('quotaBytes', quotaMB * 1024 * 1024);
     
     fetch('/admin/api/users', {
@@ -683,8 +768,9 @@ function createUser() {
     .then(() => {
         alert('Пользователь создан');
         loadUsers();
+        document.getElementById('newEmail').value = '';
+        document.getElementById('newDisplayName').value = '';
         document.getElementById('newTelegramId').value = '';
-        document.getElementById('newUsername').value = '';
         document.getElementById('newQuota').value = '1024';
     })
     .catch(e => alert('Ошибка: ' + e.message));
@@ -694,14 +780,13 @@ function updateQuota(telegramId) {
     const quotaMB = document.getElementById(`quota_${telegramId}`).value;
     const quotaBytes = quotaMB * 1024 * 1024;
     
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
+    if (!accessToken) {
         logout();
         return;
     }
     
     const params = new URLSearchParams();
-    params.append('token', token);
+    params.append('token', accessToken);
     params.append('telegramId', telegramId);
     params.append('quotaBytes', quotaBytes);
     
@@ -719,15 +804,12 @@ function updateQuota(telegramId) {
 }
 
 function loadHistory(period = '1h', type = 'cpu') {
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
+    if (!accessToken) {
         logout();
         return;
     }
     
-    lastActivity = Date.now();
-    
-    fetch('/admin/api/system/history?token=' + token + '&period=' + period)
+    fetch('/admin/api/system/history?token=' + accessToken + '&period=' + period)
         .then(r => {
             if (r.status === 401) {
                 logout();
@@ -860,20 +942,104 @@ function getTimeLabels(entries, period) {
     });
 }
 
-function deleteUser(telegramId, username) {
-    if (!confirm(`Удалить пользователя ${username} (${telegramId})? Все файлы будут удалены!`)) {
+let editingUserId = null;
+
+function openEditUserModal(userId, email, displayName, telegramId, quotaMB) {
+    editingUserId = userId;
+    document.getElementById('editEmail').value = email;
+    document.getElementById('editDisplayName').value = displayName;
+    document.getElementById('editTelegramId').value = telegramId || '';
+    document.getElementById('editQuota').value = quotaMB;
+    document.getElementById('editUserModal').style.display = 'block';
+}
+
+function closeEditUserModal() {
+    document.getElementById('editUserModal').style.display = 'none';
+    editingUserId = null;
+}
+
+function saveUserEdit() {
+    if (!editingUserId) return;
+    
+    const newEmail = document.getElementById('editEmail').value;
+    const newDisplayName = document.getElementById('editDisplayName').value;
+    const newTelegramId = document.getElementById('editTelegramId').value;
+    const newQuotaMB = document.getElementById('editQuota').value;
+    
+    if (!newEmail || !newDisplayName || !newTelegramId || !newQuotaMB) {
+        alert('Заполните все поля');
         return;
     }
     
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
+    if (!accessToken) {
         logout();
         return;
     }
     
     const params = new URLSearchParams();
-    params.append('token', token);
-    params.append('telegramId', telegramId);
+    params.append('token', accessToken);
+    params.append('userId', editingUserId);
+    params.append('email', newEmail);
+    params.append('displayName', newDisplayName);
+    params.append('telegramId', newTelegramId);
+    params.append('quotaBytes', newQuotaMB * 1024 * 1024);
+    
+    fetch('/admin/api/users/edit', {
+        method: 'POST',
+        body: params
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('Ошибка сервера');
+        alert('Пользователь обновлен');
+        closeEditUserModal();
+        loadUsers();
+        loadDashboard();
+    })
+    .catch(e => alert('Ошибка: ' + e.message));
+}
+
+function openUserInterface() {
+    window.location.href = '/';
+}
+
+function resetPassword(userId) {
+    if (!confirm('Сбросить пароль? Пароль станет равным emailу.')) {
+        return;
+    }
+    
+    if (!accessToken) {
+        logout();
+        return;
+    }
+    
+    const params = new URLSearchParams();
+    params.append('token', accessToken);
+    params.append('userId', userId);
+    
+    fetch('/admin/api/reset-password', {
+        method: 'POST',
+        body: params
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('Ошибка сервера');
+        alert('Пароль сброшен');
+    })
+    .catch(e => alert('Ошибка: ' + e.message));
+}
+
+function deleteUser(userId, displayName) {
+    if (!confirm(`Удалить пользователя ${displayName}? Все файлы будут удалены!`)) {
+        return;
+    }
+    
+    if (!accessToken) {
+        logout();
+        return;
+    }
+    
+    const params = new URLSearchParams();
+    params.append('token', accessToken);
+    params.append('userId', userId);
     
     fetch('/admin/api/users/delete', {
         method: 'POST',
