@@ -4,25 +4,47 @@
     <meta charset="utf-8">
     <title>EjectCloud - Вход</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="icon" type="image/png" href="images/twitch-logo-transparent.png">
     <style>
         body { 
             font-family: Arial, sans-serif; 
             margin: 0; 
             padding: 0; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         
+        .login-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 40px;
+            max-width: 900px;
+            width: 100%;
+            padding: 20px;
+        }
+        
         .login-container {
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
             padding: 40px;
+            width: 400px;
+            border: 3px solid #db9215;
+            flex-shrink: 0;
+        }
+        
+        .logo-video {
+            width: 400px;
+            height: 400px;
+        }
+        
+        .logo-video video {
             width: 100%;
-            max-width: 400px;
+            height: 100%;
+            object-fit: cover;
         }
         
         .logo {
@@ -31,10 +53,13 @@
         }
         
         .logo h1 {
-            color: #333;
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             margin: 0;
             font-size: 28px;
-            font-weight: 300;
+            font-weight: 600;
         }
         
         .form-group {
@@ -60,23 +85,27 @@
         
         input[type="email"]:focus, input[type="password"]:focus, input[type="text"]:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #db9215;
+            box-shadow: 0 0 0 3px rgba(219, 146, 21, 0.1);
         }
         
         .btn {
             width: 100%;
             padding: 12px;
-            background: #667eea;
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 16px;
+            font-weight: 600;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(219, 146, 21, 0.3);
         }
         
         .btn:hover {
-            background: #5a6fd8;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(219, 146, 21, 0.4);
         }
         
         .btn:disabled {
@@ -107,18 +136,40 @@
         .form-title {
             text-align: center;
             margin-bottom: 20px;
-            color: #333;
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             font-size: 20px;
+            font-weight: 600;
+        }
+        
+        @media (max-width: 768px) {
+            .login-wrapper {
+                flex-direction: column;
+                gap: 20px;
+            }
+            
+            .login-container {
+                width: 100%;
+                max-width: 400px;
+            }
+            
+            .logo-video {
+                width: 300px;
+                height: 300px;
+            }
         }
     </style>
 </head>
 <body>
 
-<div class="login-container">
+<div class="login-wrapper">
+    <div class="login-container">
     <!-- Форма входа -->
     <div id="loginForm">
         <div class="logo">
-            <h1>EjectCloud</h1>
+            <h1>☁️ EjectCloud</h1>
         </div>
         
         <form onsubmit="login(event)">
@@ -186,6 +237,13 @@
             <button type="submit" class="btn">Обновить профиль</button>
             <div id="profileError" class="error"></div>
         </form>
+    </div>
+    </div>
+    
+    <div class="logo-video">
+        <video autoplay muted loop>
+            <source src="images/animated-logo.webm" type="video/webm">
+        </video>
     </div>
 </div>
 

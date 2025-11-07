@@ -23,7 +23,6 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestParam String email, @RequestParam String password) {
-        System.out.println("Login attempt: " + email);
         UserData user = userService.authenticate(email, password);
         if (user != null) {
             String accessToken = jwtService.generateAccessToken(user.getTelegramId());

@@ -4,53 +4,80 @@
     <meta charset="utf-8">
     <title>EjectCloud - Админ панель</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="icon" type="image/png" href="images/twitch-logo-transparent.png">
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #333;
+            overflow: hidden;
+        }
+        
         .hidden { display: none; }
         
         #error {
             max-width: 500px;
             margin: 100px auto;
-            padding: 20px;
+            padding: 30px;
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
             text-align: center;
-            border-left: 4px solid #e74c3c;
+            border-left: 5px solid #e74c3c;
         }
         
         #error h2 {
             color: #e74c3c;
-            margin-top: 0;
+            margin-bottom: 15px;
+            font-weight: 600;
         }
         
         #app {
             display: flex;
             height: 100vh;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         }
         
         .sidebar {
-            width: 250px;
-            background: #2c3e50;
+            width: 280px;
+            background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
             color: white;
             overflow-y: auto;
+            box-shadow: 2px 0 15px rgba(0,0,0,0.1);
+            border-right: 3px solid #db9215;
         }
         
         .sidebar-header {
-            padding: 20px;
-            background: #34495e;
-            font-weight: bold;
+            padding: 25px 20px;
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            font-weight: 600;
             font-size: 18px;
+            text-align: center;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.2);
         }
         
         .nav-item {
-            padding: 15px 20px;
+            padding: 18px 25px;
             cursor: pointer;
-            border-bottom: 1px solid #34495e;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+            font-weight: 500;
         }
         
-        .nav-item:hover, .nav-item.active {
-            background: #3498db;
+        .nav-item:hover {
+            background: rgba(219, 146, 21, 0.2);
+            transform: translateX(5px);
+        }
+        
+        .nav-item.active {
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            box-shadow: 0 2px 10px rgba(219, 146, 21, 0.3);
         }
         
         .main-content {
@@ -58,47 +85,70 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            background: white;
         }
         
         .toolbar {
-            padding: 15px 20px;
-            background: white;
-            border-bottom: 1px solid #ddd;
+            padding: 20px 25px;
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            color: white;
+        }
+        
+        .toolbar h2 {
+            font-weight: 600;
+            font-size: 24px;
+        }
+        
+        .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            font-weight: 600;
         }
         
         .content-area {
             flex: 1;
-            padding: 20px;
+            padding: 25px;
             overflow-y: auto;
+            background: #fafbfc;
         }
         
         .dashboard-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 25px;
             margin-bottom: 30px;
         }
         
         .card {
             background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+            border-left: 4px solid #db9215;
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
         }
         
         .card h3 {
-            margin: 0 0 15px 0;
+            margin: 0 0 20px 0;
             color: #2c3e50;
+            font-weight: 600;
+            font-size: 18px;
         }
         
         .metric {
             display: flex;
             justify-content: space-between;
-            margin: 10px 0;
-            padding: 8px 0;
+            margin: 15px 0;
+            padding: 12px 0;
             border-bottom: 1px solid #eee;
         }
         
@@ -107,91 +157,140 @@
         }
         
         .metric-value {
-            font-weight: bold;
-            color: #3498db;
+            font-weight: 600;
+            color: #db9215;
         }
         
         .progress-bar {
             width: 100%;
-            height: 20px;
+            height: 12px;
             background: #ecf0f1;
-            border-radius: 10px;
+            border-radius: 6px;
             overflow: hidden;
-            margin: 10px 0;
+            margin: 15px 0;
         }
         
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #27ae60, #f39c12, #e74c3c);
-            transition: width 0.3s;
+            transition: width 0.3s ease;
+            border-radius: 6px;
         }
         
         table {
             width: 100%;
             border-collapse: collapse;
             background: white;
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
         }
         
         th {
-            background: #34495e;
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
             color: white;
-            font-weight: bold;
+            padding: 18px 20px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        td {
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+            vertical-align: middle;
         }
         
         tr:hover {
-            background: #f8f9fa;
+            background: linear-gradient(135deg, rgba(219, 146, 21, 0.05) 0%, rgba(222, 164, 64, 0.05) 100%);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
         }
         
         button {
-            padding: 8px 16px;
+            padding: 10px 18px;
             border: none;
-            border-radius: 4px;
-            background: #3498db;
-            color: white;
+            border-radius: 8px;
             cursor: pointer;
+            font-weight: 600;
             font-size: 14px;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
         
-        button:hover {
-            background: #2980b9;
+        button.primary {
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(219, 146, 21, 0.3);
+        }
+        
+        button.primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(219, 146, 21, 0.4);
+        }
+        
+        button.secondary {
+            background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+            color: white;
+        }
+        
+        button.secondary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(127, 140, 141, 0.3);
         }
         
         button.danger {
-            background: #e74c3c;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
         }
         
         button.danger:hover {
-            background: #c0392b;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
         }
         
-        input {
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        button.success {
+            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+            color: white;
+        }
+        
+        button.success:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
+        }
+        
+        input, select {
+            padding: 12px 15px;
+            border: 2px solid #ecf0f1;
+            border-radius: 8px;
             font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #db9215;
+            box-shadow: 0 0 0 3px rgba(219, 146, 21, 0.1);
         }
         
         .chart-container {
             height: 300px;
-            margin: 10px 0;
+            margin: 15px 0;
             background: white;
-            border-radius: 8px;
-            padding: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         }
         
         .monitoring-grid {
             display: grid;
-            gap: 20px;
+            gap: 25px;
             grid-template-columns: 1fr 1fr;
         }
         
@@ -205,9 +304,99 @@
             grid-column: 1 / -1;
         }
         
-        #timer {
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
+        }
+        
+        .form-field {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-label {
+            display: block;
+            color: #666;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .action-buttons button {
+            padding: 6px 12px;
+            font-size: 12px;
+            min-width: auto;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 8% auto;
+            padding: 0;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .modal-header {
+            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            color: white;
+            padding: 20px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .modal-body {
+            padding: 25px;
+        }
+        
+        .close {
+            font-size: 24px;
             font-weight: bold;
-            color: #e74c3c;
+            cursor: pointer;
+            color: white;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+        
+        .close:hover {
+            opacity: 1;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 25px;
         }
     </style>
 </head>
@@ -222,7 +411,7 @@
 <div id="app" class="hidden">
     <div class="sidebar">
         <div class="sidebar-header">
-            Админ панель
+            🔧 Админ панель
         </div>
         <div class="nav-item active" onclick="showTab('dashboard')">📊 Дашборд</div>
         <div class="nav-item" onclick="showTab('users')">👥 Пользователи</div>
@@ -232,11 +421,11 @@
     <div class="main-content">
         <div class="toolbar">
             <h2 id="pageTitle">Дашборд</h2>
-            <div style="display: flex; align-items: center; gap: 15px;">
+            <div class="toolbar-right">
                 <span id="who"></span>
                 <span id="timer"></span>
-                <button onclick="openUserInterface()" style="background: #3498db; color: white;">🏠 Пользовательский интерфейс</button>
-                <button onclick="logout()">Выход</button>
+                <button onclick="openUserInterface()" class="primary">🏠 Пользовательский интерфейс</button>
+                <button onclick="logout()" class="danger">Выход</button>
             </div>
         </div>
         
@@ -313,26 +502,26 @@
             
             <!-- Пользователи -->
             <div id="tab-users" class="hidden">
-                <div class="card" style="margin-bottom: 20px;">
-                    <h3>Создать пользователя</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
-                        <div>
-                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Email адрес</label>
-                            <input id="newEmail" type="email" style="width: 100%;" />
+                <div class="card" style="margin-bottom: 25px;">
+                    <h3>👤 Создать пользователя</h3>
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label class="form-label">Email адрес</label>
+                            <input id="newEmail" type="email" />
                         </div>
-                        <div>
-                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Отображаемое имя</label>
-                            <input id="newDisplayName" style="width: 100%;" />
+                        <div class="form-field">
+                            <label class="form-label">Отображаемое имя</label>
+                            <input id="newDisplayName" />
                         </div>
-                        <div>
-                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">ID в Telegram</label>
-                            <input id="newTelegramId" style="width: 100%;" />
+                        <div class="form-field">
+                            <label class="form-label">ID в Telegram</label>
+                            <input id="newTelegramId" />
                         </div>
-                        <div>
-                            <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Квота (MB)</label>
-                            <input id="newQuota" type="number" value="1024" style="width: 100%;" />
+                        <div class="form-field">
+                            <label class="form-label">Квота (MB)</label>
+                            <input id="newQuota" type="number" value="1024" />
                         </div>
-                        <button onclick="createUser()">Создать</button>
+                        <button onclick="createUser()" class="primary">➕ Создать</button>
                     </div>
                 </div>
                 
@@ -425,33 +614,35 @@
 </div>
 
 <!-- Модальное окно редактирования пользователя -->
-<div id="editUserModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-    <div style="background-color: white; margin: 10% auto; padding: 20px; border-radius: 8px; width: 80%; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
-            <h3 style="margin: 0; color: #2c3e50;">Редактирование пользователя</h3>
-            <span onclick="closeEditUserModal()" style="font-size: 24px; font-weight: bold; cursor: pointer; color: #999;">&times;</span>
+<div id="editUserModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="modal-title">✏️ Редактирование пользователя</div>
+            <span class="close" onclick="closeEditUserModal()">&times;</span>
         </div>
-        <div style="display: grid; gap: 15px;">
-            <div>
-                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Email адрес</label>
-                <input id="editEmail" type="email" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+        <div class="modal-body">
+            <div style="display: grid; gap: 20px;">
+                <div class="form-field">
+                    <label class="form-label">Email адрес</label>
+                    <input id="editEmail" type="email" />
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Отображаемое имя</label>
+                    <input id="editDisplayName" />
+                </div>
+                <div class="form-field">
+                    <label class="form-label">ID в Telegram</label>
+                    <input id="editTelegramId" />
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Квота (MB)</label>
+                    <input id="editQuota" type="number" />
+                </div>
             </div>
-            <div>
-                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Отображаемое имя</label>
-                <input id="editDisplayName" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+            <div class="modal-buttons">
+                <button onclick="closeEditUserModal()" class="secondary">Отмена</button>
+                <button onclick="saveUserEdit()" class="primary">Сохранить</button>
             </div>
-            <div>
-                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">ID в Telegram</label>
-                <input id="editTelegramId" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
-            </div>
-            <div>
-                <label style="display: block; color: #666; font-size: 12px; margin-bottom: 5px;">Квота (MB)</label>
-                <input id="editQuota" type="number" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
-            </div>
-        </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-            <button onclick="closeEditUserModal()">Отмена</button>
-            <button onclick="saveUserEdit()" style="background: #007acc; color: white;">Сохранить</button>
         </div>
     </div>
 </div>
@@ -724,9 +915,11 @@ function loadUsers() {
                         </div>
                     </td>
                     <td>
-                        <button onclick="openEditUserModal('${user.id}', '${user.email}', '${user.displayName}', '${user.telegramId}', ${quotaMB})" style="background: #007acc; color: white; margin-right: 5px;">Редактировать</button>
-                        <button onclick="resetPassword('${user.id}')" style="background: #ffc107; color: black; margin-right: 5px;">Сброс пароля</button>
-                        <button class="danger" onclick="deleteUser('${user.id}', '${user.displayName}')">Удалить</button>
+                        <div class="action-buttons">
+                            <button onclick="openEditUserModal('${user.id}', '${user.email}', '${user.displayName}', '${user.telegramId}', ${quotaMB})" class="primary">✏️</button>
+                            <button onclick="resetPassword('${user.id}')" class="secondary">🔑</button>
+                            <button onclick="deleteUser('${user.id}', '${user.displayName}')" class="danger">🗑️</button>
+                        </div>
                     </td>
                 `;
             });

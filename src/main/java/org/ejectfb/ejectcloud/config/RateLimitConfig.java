@@ -30,15 +30,12 @@ public class RateLimitConfig extends OncePerRequestFilter {
         
         // Строгое ограничение для логина
         if (uri.equals("/api/auth/login") && "POST".equals(request.getMethod())) {
-            System.out.println("Login request from IP: " + clientIp);
             Bucket loginBucket = getLoginBucket(clientIp);
             if (!loginBucket.tryConsume(1)) {
-                System.out.println("Rate limit exceeded for IP: " + clientIp);
                 response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
                 response.getWriter().write("Too many login attempts");
                 return;
             }
-            System.out.println("Login request allowed for IP: " + clientIp);
         }
         
         // Исключаем API из rate limiting для авторизованных пользователей

@@ -28,8 +28,7 @@
     const $quotaText = document.getElementById('quotaText');
 
     function showLogin() {
-        $login.classList.remove('hidden');
-        $app.classList.add('hidden');
+        window.location.href = '/login.html';
     }
     
     function showApp() {
@@ -140,7 +139,7 @@
                     }
                 }).catch(e => {
                     console.error('Validation error:', e);
-                    tryRefreshToken();
+                    window.location.href = '/login.html';
                 });
         } else if (oldToken) {
             convertOldToken();
@@ -170,8 +169,7 @@
             })
             .catch(e => {
                 console.error('Token conversion error:', e);
-                showNotification('Ссылка устарела или недействительна. Получите новую ссылку через /link в боте.', 'error');
-                showLogin();
+                window.location.href = '/login.html';
             });
     }
     
@@ -193,7 +191,7 @@
             })
             .catch(e => {
                 console.error('Refresh error:', e);
-                logout();
+                window.location.href = '/login.html';
             });
     }
     
@@ -270,6 +268,7 @@
         // Корзина в конце
         const trashItem = document.createElement('div');
         trashItem.className = 'tree-item' + (isInTrash && currentPath === '' ? ' selected' : '');
+        trashItem.style.paddingLeft = '30px';
         trashItem.textContent = '🗑️ Корзина';
         trashItem.onclick = () => selectTrash();
         $fileTree.appendChild(trashItem);
@@ -291,7 +290,7 @@
                 });
             });
             
-            renderTreeLevel(trashTree, $fileTree, 1, true);
+            renderTreeLevel(trashTree, $fileTree, 2, true);
         }
     }
     
@@ -301,7 +300,7 @@
             const item = document.createElement('div');
             const isSelected = inTrash ? (isInTrash && currentPath === node.path) : (!isInTrash && currentPath === node.path);
             item.className = 'tree-item folder' + (isSelected ? ' selected' : '');
-            item.style.paddingLeft = (10 + depth * 20) + 'px';
+            item.style.paddingLeft = (30 + depth * 20) + 'px';
             item.textContent = name;
             item.onclick = () => inTrash ? selectTrashPath(node.path) : selectPath(node.path);
             container.appendChild(item);
@@ -387,7 +386,9 @@
             
             const actionsCell = row.insertCell();
             actionsCell.innerHTML = `
-                <button onclick="event.stopPropagation(); deleteFolder('${folder}')" style="background: #dc3545; color: white;" title="Удалить папку">🗑️</button>
+                <div class="action-buttons">
+                    <button onclick="event.stopPropagation(); deleteFolder('${folder}')" class="danger" title="Удалить папку">🗑️</button>
+                </div>
             `;
         });
         
@@ -425,10 +426,12 @@
             // Действия
             const actionsCell = row.insertCell();
             actionsCell.innerHTML = `
-                <button onclick="downloadFile('${file.id}')" title="Скачать">⬇️</button>
-                <button onclick="shareFile('${file.id}')" title="Поделиться">🔗</button>
-                <button onclick="moveFileDialog('${file.id}')" title="Переместить">📁</button>
-                <button onclick="deleteFile('${file.id}')" style="background: #dc3545; color: white;" title="Удалить">🗑️</button>
+                <div class="action-buttons">
+                    <button onclick="downloadFile('${file.id}')" class="primary" title="Скачать">⬇️</button>
+                    <button onclick="shareFile('${file.id}')" class="secondary" title="Поделиться">🔗</button>
+                    <button onclick="moveFileDialog('${file.id}')" class="secondary" title="Переместить">📁</button>
+                    <button onclick="deleteFile('${file.id}')" class="danger" title="Удалить">🗑️</button>
+                </div>
             `;
         });
     }
@@ -786,8 +789,8 @@
         localStorage.removeItem('eject_refresh_token');
         accessToken = null;
         refreshToken = null;
-        showLogin();
-        showNotification('Вы вышли из системы. Получите новую ссылку через /link в боте.', 'warning');
+        
+        window.location.href = '/login.html';
     }
     
     window.logout = logout;
@@ -825,7 +828,7 @@
                     В корзине ${trashFiles.length} элементов
                 </td>
                 <td>
-                    <button onclick="clearTrash()" style="background: #dc3545; color: white;" title="Очистить корзину">🗑️ Очистить все</button>
+                    <button onclick="clearTrash()" class="danger" title="Очистить корзину">🗑️ Очистить все</button>
                 </td>
             `;
         }
@@ -859,12 +862,13 @@
             row.insertCell().textContent = '-';
             
             const actionsCell = row.insertCell();
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'action-buttons';
+            
             const restoreBtn = document.createElement('button');
             restoreBtn.innerHTML = '↩️';
             restoreBtn.title = 'Восстановить';
-            restoreBtn.style.background = '#28a745';
-            restoreBtn.style.color = 'white';
-            restoreBtn.style.marginRight = '5px';
+            restoreBtn.className = 'success';
             restoreBtn.onclick = (e) => {
                 e.stopPropagation();
                 restoreFromTrash(folder);
@@ -873,15 +877,15 @@
             const deleteBtn = document.createElement('button');
             deleteBtn.innerHTML = '🗑️';
             deleteBtn.title = 'Удалить навсегда';
-            deleteBtn.style.background = '#dc3545';
-            deleteBtn.style.color = 'white';
+            deleteBtn.className = 'danger';
             deleteBtn.onclick = (e) => {
                 e.stopPropagation();
                 deleteFromTrash(folder);
             };
             
-            actionsCell.appendChild(restoreBtn);
-            actionsCell.appendChild(deleteBtn);
+            actionsDiv.appendChild(restoreBtn);
+            actionsDiv.appendChild(deleteBtn);
+            actionsCell.appendChild(actionsDiv);
         });
         
         // Файлы
@@ -898,8 +902,10 @@
                 <td>${itemDate}</td>
                 <td>-</td>
                 <td>
-                    <button onclick="restoreFromTrash('${item.id}')" style="background: #28a745; color: white; margin-right: 5px;" title="Восстановить">↩️</button>
-                    <button onclick="deleteFromTrash('${item.id}')" style="background: #dc3545; color: white;" title="Удалить навсегда">🗑️</button>
+                    <div class="action-buttons">
+                        <button onclick="restoreFromTrash('${item.id}')" class="success" title="Восстановить">↩️</button>
+                        <button onclick="deleteFromTrash('${item.id}')" class="danger" title="Удалить навсегда">🗑️</button>
+                    </div>
                 </td>
             `;
         });
@@ -977,7 +983,7 @@
     }
 
     // Проверяем аутентификацию
-    if (!accessToken) {
+    if (!accessToken && !oldToken) {
         window.location.href = '/login.html';
         return;
     }

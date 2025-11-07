@@ -15,10 +15,8 @@ import org.springframework.stereotype.Component;
 @ComponentScan(basePackages = "org.ejectfb.ejectcloud")
 public class EjectCloudApplication {
     public static void main(String[] args) {
-        System.out.println("Starting EjectCloud application...");
         try {
             SpringApplication.run(EjectCloudApplication.class, args);
-            System.out.println("EjectCloud application started successfully!");
         } catch (Exception e) {
             System.err.println("Failed to start application: " + e.getMessage());
             e.printStackTrace();
