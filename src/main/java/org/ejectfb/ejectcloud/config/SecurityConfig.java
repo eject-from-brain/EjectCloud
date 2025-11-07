@@ -38,10 +38,16 @@ public class SecurityConfig {
                         .requestMatchers("/admin.html", "/h2-console/**").hasRole("ADMIN")
                         .anyRequest().permitAll()
                 )
-                .httpBasic(Customizer.withDefaults());
-
-        // allow h2 console frames
-        http.headers(headers -> headers.frameOptions(frame -> frame.disable()));
+                .httpBasic(Customizer.withDefaults())
+                .headers(headers -> headers
+                        .frameOptions(frameOptions -> frameOptions.deny())
+                        .contentTypeOptions(Customizer.withDefaults())
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .maxAgeInSeconds(31536000)
+                                .includeSubDomains(true)
+                                .preload(true)
+                        )
+                );
 
         return http.build();
     }

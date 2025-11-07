@@ -267,6 +267,7 @@
     function selectPath(path) {
         currentPath = path;
         isInTrash = false;
+        updateToolbarButtons();
         buildFileTree();
         showFilesInPath(path);
     }
@@ -274,6 +275,7 @@
     function selectTrash() {
         isInTrash = true;
         currentPath = '';
+        updateToolbarButtons();
         buildFileTree();
         showTrash();
     }
@@ -281,6 +283,7 @@
     function selectTrashPath(path) {
         isInTrash = true;
         currentPath = path;
+        updateToolbarButtons();
         buildFileTree();
         showTrash();
     }
@@ -335,13 +338,9 @@
             row.insertCell().textContent = '-';
             
             const actionsCell = row.insertCell();
-            const deleteBtn = document.createElement('button');
-            deleteBtn.textContent = 'Удалить';
-            deleteBtn.onclick = (e) => {
-                e.stopPropagation();
-                deleteFolder(folder);
-            };
-            actionsCell.appendChild(deleteBtn);
+            actionsCell.innerHTML = `
+                <button onclick="event.stopPropagation(); deleteFolder('${folder}')" style="background: #dc3545; color: white;" title="Удалить папку">🗑️</button>
+            `;
         });
         
         // Файлы
@@ -378,10 +377,10 @@
             // Действия
             const actionsCell = row.insertCell();
             actionsCell.innerHTML = `
-                <button onclick="downloadFile('${file.id}')">Скачать</button>
-                <button onclick="shareFile('${file.id}')">Поделиться</button>
-                <button onclick="moveFileDialog('${file.id}')">Переместить</button>
-                <button onclick="deleteFile('${file.id}')">Удалить</button>
+                <button onclick="downloadFile('${file.id}')" title="Скачать">⬇️</button>
+                <button onclick="shareFile('${file.id}')" title="Поделиться">🔗</button>
+                <button onclick="moveFileDialog('${file.id}')" title="Переместить">📁</button>
+                <button onclick="deleteFile('${file.id}')" style="background: #dc3545; color: white;" title="Удалить">🗑️</button>
             `;
         });
     }
@@ -394,7 +393,21 @@
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+    function updateToolbarButtons() {
+        const uploadBtn = document.getElementById('uploadBtn');
+        const createFolderBtn = document.getElementById('createFolderBtn');
+        
+        if (isInTrash) {
+            uploadBtn.style.display = 'none';
+            createFolderBtn.style.display = 'none';
+        } else {
+            uploadBtn.style.display = 'inline-block';
+            createFolderBtn.style.display = 'inline-block';
+        }
+    }
+
     window.uploadFiles = function() {
+        if (isInTrash) return;
         $fileInput.click();
     };
 
@@ -589,6 +602,7 @@
     });
 
     window.createFolder = function() {
+        if (isInTrash) return;
         showInput('Создать папку', 'Введите имя папки:', (folderName) => {
             // Валидация имени папки
             if (/[<>:"/\\|?*]/.test(folderName)) {
@@ -736,7 +750,7 @@
                     В корзине ${trashFiles.length} элементов
                 </td>
                 <td>
-                    <button onclick="clearTrash()" style="background: #dc3545; color: white;">Очистить все</button>
+                    <button onclick="clearTrash()" style="background: #dc3545; color: white;" title="Очистить корзину">🗑️ Очистить все</button>
                 </td>
             `;
         }
@@ -771,7 +785,8 @@
             
             const actionsCell = row.insertCell();
             const restoreBtn = document.createElement('button');
-            restoreBtn.textContent = 'Восстановить';
+            restoreBtn.innerHTML = '↩️';
+            restoreBtn.title = 'Восстановить';
             restoreBtn.style.background = '#28a745';
             restoreBtn.style.color = 'white';
             restoreBtn.style.marginRight = '5px';
@@ -781,7 +796,8 @@
             };
             
             const deleteBtn = document.createElement('button');
-            deleteBtn.textContent = 'Удалить навсегда';
+            deleteBtn.innerHTML = '🗑️';
+            deleteBtn.title = 'Удалить навсегда';
             deleteBtn.style.background = '#dc3545';
             deleteBtn.style.color = 'white';
             deleteBtn.onclick = (e) => {
@@ -797,19 +813,18 @@
         itemsInPath.forEach(item => {
             const row = $filesTable.insertRow();
             const itemName = item.id.includes('/') ? item.id.split('/').pop() : item.id;
-            const isFolder = item.size === -1;
-            const itemSize = isFolder ? '-' : formatFileSize(item.size);
+
+            const itemSize = (item.sizeBytes !== undefined && item.sizeBytes !== null) ? formatFileSize(item.sizeBytes) : '-';
             const itemDate = new Date(item.uploadedAt).toLocaleString();
-            const icon = isFolder ? '📁' : '📄';
             
             row.innerHTML = `
-                <td>${icon} ${itemName}</td>
+                <td>📄 ${itemName}</td>
                 <td>${itemSize}</td>
                 <td>${itemDate}</td>
                 <td>-</td>
                 <td>
-                    <button onclick="restoreFromTrash('${item.id}')" style="background: #28a745; color: white; margin-right: 5px;">Восстановить</button>
-                    <button onclick="deleteFromTrash('${item.id}')" style="background: #dc3545; color: white;">Удалить навсегда</button>
+                    <button onclick="restoreFromTrash('${item.id}')" style="background: #28a745; color: white; margin-right: 5px;" title="Восстановить">↩️</button>
+                    <button onclick="deleteFromTrash('${item.id}')" style="background: #dc3545; color: white;" title="Удалить навсегда">🗑️</button>
                 </td>
             `;
         });
