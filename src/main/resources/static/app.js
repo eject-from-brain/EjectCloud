@@ -23,6 +23,8 @@
     let selectedTargetFolder = '';
     let confirmCallback = null;
     let refreshInterval = null;
+    let uploadQueue = [];
+    let isUploading = false;
     
     const $quotaProgress = document.getElementById('quotaProgress');
     const $quotaText = document.getElementById('quotaText');
@@ -77,7 +79,7 @@
         // Корень
         const rootItem = document.createElement('div');
         rootItem.className = 'folder-item selected';
-        rootItem.textContent = '🏠 Корень';
+        rootItem.textContent = '🏠 Хранилище';
         rootItem.onclick = () => selectTargetFolder('', rootItem);
         folderTree.appendChild(rootItem);
         
@@ -176,10 +178,10 @@
     function tryRefreshToken() {
         if (!refreshToken) {
             showLogin();
-            return;
+            return Promise.reject('No refresh token');
         }
         
-        fetch(`/api/auth/refresh?refreshToken=${encodeURIComponent(refreshToken)}`, { method: 'POST' })
+        return fetch(`/api/auth/refresh?refreshToken=${encodeURIComponent(refreshToken)}`, { method: 'POST' })
             .then(r => {
                 if (!r.ok) throw new Error('Refresh failed');
                 return r.json();
@@ -187,11 +189,12 @@
             .then(data => {
                 accessToken = data.accessToken;
                 localStorage.setItem('eject_access_token', accessToken);
-                doValidate();
+                return data;
             })
             .catch(e => {
                 console.error('Refresh error:', e);
                 window.location.href = '/login.html';
+                throw e;
             });
     }
     
@@ -242,7 +245,7 @@
         // Корневая папка
         const rootItem = document.createElement('div');
         rootItem.className = 'tree-item root' + (!isInTrash && currentPath === '' ? ' selected' : '');
-        rootItem.textContent = 'Корень';
+        rootItem.textContent = 'Хранилище';
         rootItem.onclick = () => selectPath('');
         $fileTree.appendChild(rootItem);
 
@@ -336,7 +339,7 @@
     }
 
     function showFilesInPath(path) {
-        $currentPath.textContent = path || 'Корень';
+        $currentPath.textContent = path || 'Хранилище';
         
         // Фильтруем файлы для текущей папки
         const filesInPath = allFiles.filter(file => {
@@ -466,67 +469,77 @@
         const files = this.files;
         if (files.length === 0) return;
 
-        // Проверяем квоту перед загрузкой
-        const token = getAuthToken();
-        fetch(`/api/files/quota?token=${encodeURIComponent(token)}`)
-            .then(r => {
-                if (!r.ok) throw new Error('Ошибка получения информации о квоте');
-                return r.json();
-            })
-            .then(quota => {
-                let totalSize = 0;
-                for (let file of files) {
-                    totalSize += file.size;
-                }
-                
-                if (quota.remaining < totalSize) {
-                    const remainingMB = (quota.remaining / 1024 / 1024).toFixed(2);
-                    const neededMB = (totalSize / 1024 / 1024).toFixed(2);
-                    showNotification(`Недостаточно места! Осталось: ${remainingMB} MB, нужно: ${neededMB} MB`, 'warning');
-                    this.value = ''; // Очищаем input
-                    return;
-                }
-                
-                // Загружаем файлы последовательно
-                uploadFilesSequentially(Array.from(files), 0);
-            })
-            .catch(e => {
-                showNotification('Ошибка проверки квоты: ' + e.message, 'error');
-                this.value = ''; // Очищаем input
-            });
+        // Добавляем файлы в очередь
+        Array.from(files).forEach(file => {
+            uploadQueue.push({ file, path: currentPath });
+        });
+        
+        this.value = ''; // Очищаем input
+        
+        // Показываем/обновляем прогресс
+        if (!document.getElementById('uploadProgress')) {
+            showUploadProgress();
+        } else {
+            updateUploadProgressDisplay();
+        }
+        
+        // Запускаем обработку очереди если не загружаем
+        if (!isUploading) {
+            processUploadQueue();
+        }
     });
     
-    function uploadFilesSequentially(files, index) {
-        if (index >= files.length) {
-            $fileInput.value = ''; // Очищаем input после всех загрузок
-            hideUploadProgress();
-            loadFiles(); // Обновляем список файлов
+    function processUploadQueue() {
+        if (uploadQueue.length === 0) {
+            isUploading = false;
+            window.currentUploadFile = null;
+            setTimeout(() => {
+                hideUploadProgress();
+                loadFiles();
+            }, 2000);
             return;
         }
         
-        const file = files[index];
-        showUploadProgress(file.name, index + 1, files.length, file.size);
+        isUploading = true;
+        const { file, path } = uploadQueue.shift();
+        window.currentUploadFile = file.name;
         
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('token', getAuthToken());
-        if (currentPath) fd.append('path', currentPath);
+        if (!window.uploadedFiles) window.uploadedFiles = [];
+        updateUploadProgressDisplay();
+        
+        // Обновляем токен перед каждой загрузкой
+        tryRefreshToken().then(() => {
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('token', getAuthToken());
+            if (path) fd.append('path', path);
 
-        // Получаем таймаут из конфига
-        fetch('/api/files/config/upload-timeout')
-            .then(r => r.json())
-            .then(config => {
-                startUpload(config.timeout);
-            })
-            .catch(() => {
-                startUpload(10800000); // fallback 3 часа
-            });
+            // Получаем таймаут из конфига
+            fetch(`/api/files/config/upload-timeout?token=${encodeURIComponent(getAuthToken())}`)
+                .then(r => r.json())
+                .then(config => {
+                    startUpload(config.timeout, fd);
+                })
+                .catch(() => {
+                    startUpload(10800000, fd); // fallback 3 часа
+                });
+        }).catch(() => {
+            // Ошибка обновления токена
+            showNotification(`Ошибка аутентификации при загрузке ${file.name}`, 'error');
+            processUploadQueue();
+        });
             
-        function startUpload(timeout) {
+        function startUpload(timeout, fd) {
             const xhr = new XMLHttpRequest();
             let startTime = Date.now();
             let lastLoaded = 0;
             let lastTime = startTime;
+            let tokenRefreshInterval;
+            
+            // Обновляем токен каждые 5 минут во время загрузки
+            tokenRefreshInterval = setInterval(() => {
+                tryRefreshToken();
+            }, 5 * 60 * 1000);
             
             xhr.upload.addEventListener('progress', (e) => {
                 if (e.lengthComputable) {
@@ -547,6 +560,7 @@
             });
             
             xhr.onload = function() {
+                clearInterval(tokenRefreshInterval);
                 if (xhr.status === 200) {
                     try {
                         const response = JSON.parse(xhr.responseText);
@@ -556,21 +570,24 @@
                     } catch (e) {
                         // Игнорируем ошибки парсинга
                     }
-                    uploadFilesSequentially(files, index + 1);
+                    window.uploadedFiles.push(file.name);
+                    processUploadQueue();
                 } else {
                     showNotification(`Ошибка загрузки ${file.name}: ${xhr.responseText}`, 'error');
-                    uploadFilesSequentially(files, index + 1);
+                    processUploadQueue();
                 }
             };
             
             xhr.onerror = function() {
+                clearInterval(tokenRefreshInterval);
                 showNotification(`Ошибка загрузки ${file.name}: Соединение прервано`, 'error');
-                uploadFilesSequentially(files, index + 1);
+                processUploadQueue();
             };
             
             xhr.ontimeout = function() {
+                clearInterval(tokenRefreshInterval);
                 showNotification(`Ошибка загрузки ${file.name}: Превышено время ожидания`, 'error');
-                uploadFilesSequentially(files, index + 1);
+                processUploadQueue();
             };
             
             xhr.timeout = timeout;
@@ -579,7 +596,7 @@
         }
     }
     
-    function showUploadProgress(fileName, current, total, fileSize) {
+    function showUploadProgress() {
         let progressDiv = document.getElementById('uploadProgress');
         if (!progressDiv) {
             progressDiv = document.createElement('div');
@@ -594,22 +611,52 @@
                 padding: 15px;
                 box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 z-index: 1000;
-                min-width: 350px;
+                min-width: 400px;
+                max-height: 500px;
+                overflow-y: auto;
             `;
             document.body.appendChild(progressDiv);
         }
+        updateUploadProgressDisplay();
+    }
+    
+    function updateUploadProgressDisplay() {
+        const progressDiv = document.getElementById('uploadProgress');
+        if (!progressDiv) return;
         
-        progressDiv.innerHTML = `
-            <div style="margin-bottom: 10px; font-weight: bold;">Загрузка файлов (${current}/${total})</div>
-            <div style="margin-bottom: 5px; font-size: 14px; word-break: break-all;">${fileName}</div>
-            <div style="margin-bottom: 5px; font-size: 12px; color: #666;">Размер: ${formatFileSize(fileSize)}</div>
-            <div style="background: #f0f0f0; border-radius: 3px; overflow: hidden;">
+        let html = `<div style="margin-bottom: 10px; font-weight: bold;">Загрузка файлов</div>`;
+        
+        // Загруженные файлы
+        (window.uploadedFiles || []).forEach(file => {
+            html += `<div style="margin: 5px 0; font-size: 12px; display: flex; align-items: center;">
+                <span style="color: green; margin-right: 8px;">✓</span>
+                <span style="flex: 1; word-break: break-all;">${file}</span>
+            </div>`;
+        });
+        
+        // Текущий файл
+        if (isUploading && window.currentUploadFile) {
+            html += `<div style="margin: 5px 0; font-size: 12px; display: flex; align-items: center;">
+                <span style="color: #007acc; margin-right: 8px;">🔄</span>
+                <span style="flex: 1; word-break: break-all;">${window.currentUploadFile}</span>
+            </div>`;
+            html += `<div style="background: #f0f0f0; border-radius: 3px; overflow: hidden; margin: 5px 0;">
                 <div id="uploadProgressBar" style="background: #007acc; height: 20px; width: 0%; transition: width 0.3s;"></div>
             </div>
             <div id="uploadProgressText" style="text-align: center; margin-top: 5px; font-size: 12px;">0%</div>
             <div id="uploadSpeedText" style="text-align: center; margin-top: 3px; font-size: 11px; color: #666;"></div>
-            <div id="uploadSizeText" style="text-align: center; margin-top: 3px; font-size: 11px; color: #666;"></div>
-        `;
+            <div id="uploadSizeText" style="text-align: center; margin-top: 3px; font-size: 11px; color: #666;"></div>`;
+        }
+        
+        // Файлы в очереди
+        uploadQueue.forEach(item => {
+            html += `<div style="margin: 5px 0; font-size: 12px; display: flex; align-items: center;">
+                <span style="color: #666; margin-right: 8px;">⏳</span>
+                <span style="flex: 1; word-break: break-all;">${item.file.name}</span>
+            </div>`;
+        });
+        
+        progressDiv.innerHTML = html;
     }
     
     function updateUploadProgress(percent, loaded, total, speed) {
@@ -631,7 +678,25 @@
                 } else {
                     speedStr = speed.toFixed(0) + ' B/s';
                 }
-                speedText.textContent = speedStr;
+                
+                // Расчет оставшегося времени
+                const remaining = total - loaded;
+                const timeLeft = remaining / speed;
+                let timeStr = '';
+                
+                if (timeLeft > 3600) {
+                    const hours = Math.floor(timeLeft / 3600);
+                    const minutes = Math.floor((timeLeft % 3600) / 60);
+                    timeStr = ` (осталось ${hours} ч. ${minutes} мин.)`;
+                } else if (timeLeft > 60) {
+                    const minutes = Math.floor(timeLeft / 60);
+                    const seconds = Math.floor(timeLeft % 60);
+                    timeStr = ` (осталось ${minutes} м. ${seconds} сек.)`;
+                } else if (timeLeft > 0) {
+                    timeStr = ` (осталось ${Math.ceil(timeLeft)} сек.)`;
+                }
+                
+                speedText.textContent = speedStr + timeStr;
             }
             
             if (sizeText && loaded !== undefined && total !== undefined) {
@@ -645,6 +710,8 @@
         if (progressDiv) {
             progressDiv.remove();
         }
+        window.uploadedFiles = [];
+        window.currentUploadFile = null;
     }
     
     function getTimeUntilExpiry(expiresAt) {
