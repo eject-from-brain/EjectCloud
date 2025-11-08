@@ -274,12 +274,52 @@ public class FileController {
     public ResponseEntity<?> moveFile(@RequestParam String fileId, 
                                      @RequestParam String targetFolder, 
                                      @RequestParam String token) {
-        String userId = requireUserId(token);
         try {
-            storageService.moveFile(userId, fileId, targetFolder);
+            String userId = requireUserId(token);
+            String newFileName = storageService.moveFile(userId, fileId, targetFolder);
+            
+            if (newFileName != null) {
+                return ResponseEntity.ok(java.util.Map.of(
+                    "renamed", true,
+                    "newName", newFileName
+                ));
+            }
+            
             return ResponseEntity.ok().build();
         } catch (Exception e) {
-            return ResponseEntity.status(400).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+    
+    @PostMapping("/rename")
+    public ResponseEntity<?> renameFile(@RequestParam String fileId, 
+                                       @RequestParam String newName, 
+                                       @RequestParam String token) {
+        try {
+            String userId = requireUserId(token);
+            storageService.renameFile(userId, fileId, newName);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+    
+    @PostMapping("/rename-folder")
+    public ResponseEntity<?> renameFolder(@RequestParam String folderPath, 
+                                         @RequestParam String newName, 
+                                         @RequestParam String token) {
+        try {
+            String userId = requireUserId(token);
+            storageService.renameFolder(userId, folderPath, newName);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .body(java.util.Map.of("error", e.getMessage()));
         }
     }
 }

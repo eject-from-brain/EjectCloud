@@ -172,8 +172,8 @@
         
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #27ae60, #f39c12, #e74c3c);
-            transition: width 0.3s ease;
+            background: #28a745;
+            transition: width 0.3s ease, background-color 0.3s ease;
             border-radius: 6px;
         }
         
@@ -834,7 +834,17 @@ function updateSystemMetrics(system) {
     document.getElementById('totalDisk').textContent = totalGB + ' GB';
     document.getElementById('freeDisk').textContent = freeGB + ' GB';
     document.getElementById('usedDisk').textContent = usedGB + ' GB (' + diskPercent + '%)';
-    document.getElementById('diskProgress').style.width = diskPercent + '%';
+    const diskProgressBar = document.getElementById('diskProgress');
+    diskProgressBar.style.width = diskPercent + '%';
+    
+    // Цвет в зависимости от заполненности
+    if (diskPercent < 70) {
+        diskProgressBar.style.backgroundColor = '#28a745';
+    } else if (diskPercent < 90) {
+        diskProgressBar.style.backgroundColor = '#ffc107';
+    } else {
+        diskProgressBar.style.backgroundColor = '#dc3545';
+    }
     
     document.getElementById('cpuUsage').textContent = system.cpuUsage.toFixed(1) + '%';
     
@@ -852,7 +862,17 @@ function updateUserMetrics(users) {
     
     document.getElementById('totalQuota').textContent = totalQuotaGB + ' GB';
     document.getElementById('totalUsed').textContent = totalUsedGB + ' GB (' + quotaPercent + '%)';
-    document.getElementById('quotaProgress').style.width = quotaPercent + '%';
+    const quotaProgressBar = document.getElementById('quotaProgress');
+    quotaProgressBar.style.width = quotaPercent + '%';
+    
+    // Цвет в зависимости от заполненности
+    if (quotaPercent < 70) {
+        quotaProgressBar.style.backgroundColor = '#28a745';
+    } else if (quotaPercent < 90) {
+        quotaProgressBar.style.backgroundColor = '#ffc107';
+    } else {
+        quotaProgressBar.style.backgroundColor = '#dc3545';
+    }
 }
 
 function updateTopUsers(usersList) {

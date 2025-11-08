@@ -160,11 +160,15 @@
         }
         
         th:first-child {
-            width: 50%;
+            width: 40px;
         }
         
-        th:nth-child(2), th:nth-child(3), th:nth-child(4), th:nth-child(5) {
-            width: 12.5%;
+        th:nth-child(2) {
+            width: 45%;
+        }
+        
+        th:nth-child(3), th:nth-child(4), th:nth-child(5), th:nth-child(6) {
+            width: 13.75%;
         }
         
         td {
@@ -255,8 +259,8 @@
         
         .quota-fill {
             height: 100%;
-            background: linear-gradient(90deg, #27ae60, #f39c12, #e74c3c);
-            transition: width 0.3s ease;
+            background: #28a745;
+            transition: width 0.3s ease, background-color 0.3s ease;
             border-radius: 4px;
         }
         
@@ -421,6 +425,44 @@
             min-width: auto;
         }
         
+        .bulk-actions {
+            background: linear-gradient(135db, #3498db 0%, #2980b9 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
+        }
+        
+        .bulk-info {
+            font-weight: 600;
+            font-size: 16px;
+            color: white;
+        }
+        
+        .bulk-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .bulk-buttons button {
+            padding: 8px 15px;
+            font-size: 13px;
+        }
+        
+        .file-row.selected {
+            background: rgba(52, 152, 219, 0.1) !important;
+            border-left: 4px solid #3498db;
+        }
+        
+        .file-checkbox {
+            margin: 0;
+            transform: scale(1.2);
+        }
+        
         @media (max-width: 768px) {
             .sidebar {
                 width: 250px;
@@ -438,6 +480,12 @@
             
             .quota-display {
                 justify-content: center;
+            }
+            
+            .bulk-actions {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
             }
         }
     </style>
@@ -492,10 +540,24 @@
         
         <div class="file-area">
             <div id="currentPath" class="current-path"></div>
+            
+            <!-- Панель групповых операций -->
+            <div id="bulkActions" class="bulk-actions" style="display: none;">
+                <div class="bulk-info">
+                    <span id="selectedCount">0</span> файлов выбрано
+                </div>
+                <div class="bulk-buttons">
+                    <button onclick="bulkMove()" class="primary">📁 Переместить</button>
+                    <button onclick="bulkDelete()" class="danger">🗑️ Удалить</button>
+                    <button onclick="clearSelection()" class="secondary">❌ Отменить</button>
+                </div>
+            </div>
+            
             <div class="files-container">
                 <table id="filesTable">
                     <thead>
                         <tr>
+                            <th style="width: 40px;"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
                             <th>📄 Имя</th>
                             <th>📊 Размер</th>
                             <th>📅 Дата</th>

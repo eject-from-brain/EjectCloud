@@ -25,6 +25,7 @@
     let refreshInterval = null;
     let uploadQueue = [];
     let isUploading = false;
+    let selectedFiles = new Set();
     
     const $quotaProgress = document.getElementById('quotaProgress');
     const $quotaText = document.getElementById('quotaText');
@@ -41,12 +42,19 @@
     function showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
-        notification.textContent = message;
+        notification.innerHTML = `
+            <span style="flex: 1;">${message}</span>
+            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 18px; cursor: pointer; margin-left: 10px; opacity: 0.7;" title="Закрыть">&times;</button>
+        `;
+        notification.style.display = 'flex';
+        notification.style.alignItems = 'center';
         document.body.appendChild(notification);
         
         setTimeout(() => {
-            notification.remove();
-        }, 4000);
+            if (notification.parentElement) {
+                notification.remove();
+            }
+        }, 30000);
     }
     
     function showConfirm(message, callback) {
@@ -317,6 +325,7 @@
     function selectPath(path) {
         currentPath = path;
         isInTrash = false;
+        clearSelection();
         updateToolbarButtons();
         buildFileTree();
         showFilesInPath(path);
@@ -325,6 +334,7 @@
     function selectTrash() {
         isInTrash = true;
         currentPath = '';
+        clearSelection();
         updateToolbarButtons();
         buildFileTree();
         showTrash();
@@ -333,6 +343,7 @@
     function selectTrashPath(path) {
         isInTrash = true;
         currentPath = path;
+        clearSelection();
         updateToolbarButtons();
         buildFileTree();
         showTrash();
@@ -363,6 +374,7 @@
         if (path !== '') {
             const row = $filesTable.insertRow();
             const parentPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+            row.insertCell(); // Пустая ячейка для чекбокса
             const cell = row.insertCell();
             cell.style.cursor = 'pointer';
             cell.style.color = '#007acc';
@@ -378,6 +390,7 @@
         subfolders.forEach(folder => {
             const row = $filesTable.insertRow();
             const folderName = folder.split('/').pop();
+            row.insertCell(); // Пустая ячейка для чекбокса
             const cell = row.insertCell();
             cell.style.cursor = 'pointer';
             cell.style.color = '#007acc';
@@ -390,6 +403,7 @@
             const actionsCell = row.insertCell();
             actionsCell.innerHTML = `
                 <div class="action-buttons">
+                    <button onclick="event.stopPropagation(); renameFolder('${folder}')" class="secondary" title="Переименовать">✏️</button>
                     <button onclick="event.stopPropagation(); deleteFolder('${folder}')" class="danger" title="Удалить папку">🗑️</button>
                 </div>
             `;
@@ -398,9 +412,15 @@
         // Файлы
         filesInPath.forEach(file => {
             const row = $filesTable.insertRow();
+            row.className = 'file-row';
+            row.dataset.fileId = file.id;
             const fileName = file.id.includes('/') ? file.id.split('/').pop() : file.id;
             const fileSize = formatFileSize(file.size);
             const fileDate = new Date(file.uploadedAt).toLocaleString();
+            
+            // Чекбокс
+            const checkboxCell = row.insertCell();
+            checkboxCell.innerHTML = `<input type="checkbox" class="file-checkbox" onchange="toggleFileSelection('${file.id}', this)">`;
             
             // Название файла
             const nameCell = row.insertCell();
@@ -432,11 +452,14 @@
                 <div class="action-buttons">
                     <button onclick="downloadFile('${file.id}')" class="primary" title="Скачать">⬇️</button>
                     <button onclick="shareFile('${file.id}')" class="secondary" title="Поделиться">🔗</button>
+                    <button onclick="renameFile('${file.id}')" class="secondary" title="Переименовать">✏️</button>
                     <button onclick="moveFileDialog('${file.id}')" class="secondary" title="Переместить">📁</button>
                     <button onclick="deleteFile('${file.id}')" class="danger" title="Удалить">🗑️</button>
                 </div>
             `;
         });
+        
+        updateBulkActionsVisibility();
     }
 
     function formatFileSize(bytes) {
@@ -465,28 +488,62 @@
         $fileInput.click();
     };
 
-    $fileInput.addEventListener('change', function() {
+    $fileInput.addEventListener('change', async function() {
         const files = this.files;
         if (files.length === 0) return;
 
-        // Добавляем файлы в очередь
+        // Получаем текущую квоту
+        const token = getAuthToken();
+        let quotaInfo;
+        try {
+            const response = await fetch(`/api/files/quota?token=${encodeURIComponent(token)}`);
+            quotaInfo = await response.json();
+        } catch (e) {
+            showNotification('Ошибка получения информации о квоте', 'error');
+            this.value = '';
+            return;
+        }
+
+        // Проверяем размеры файлов
+        const filesToUpload = [];
+        const rejectedFiles = [];
+        let totalSize = 0;
+        
         Array.from(files).forEach(file => {
-            uploadQueue.push({ file, path: currentPath });
+            totalSize += file.size;
+            if (quotaInfo.remaining >= totalSize) {
+                filesToUpload.push(file);
+            } else {
+                rejectedFiles.push(file);
+            }
         });
         
+        // Показываем предупреждения о отклоненных файлах
+        if (rejectedFiles.length > 0) {
+            const rejectedNames = rejectedFiles.map(f => f.name).join(', ');
+            showNotification(`Файлы не загружены (недостаточно места): ${rejectedNames}`, 'warning');
+        }
+        
+        // Добавляем только подходящие файлы в очередь
+        if (filesToUpload.length > 0) {
+            filesToUpload.forEach(file => {
+                uploadQueue.push({ file, path: currentPath });
+            });
+            
+            // Показываем/обновляем прогресс
+            if (!document.getElementById('uploadProgress')) {
+                showUploadProgress();
+            } else {
+                updateUploadProgressDisplay();
+            }
+            
+            // Запускаем обработку очереди если не загружаем
+            if (!isUploading) {
+                processUploadQueue();
+            }
+        }
+        
         this.value = ''; // Очищаем input
-        
-        // Показываем/обновляем прогресс
-        if (!document.getElementById('uploadProgress')) {
-            showUploadProgress();
-        } else {
-            updateUploadProgressDisplay();
-        }
-        
-        // Запускаем обработку очереди если не загружаем
-        if (!isUploading) {
-            processUploadQueue();
-        }
     });
     
     function processUploadQueue() {
@@ -735,13 +792,14 @@
 
     let inputCallback = null;
     
-    function showInput(title, message, callback) {
+    function showInput(title, message, callback, defaultValue = '') {
         document.getElementById('inputTitle').textContent = title;
         document.getElementById('inputMessage').textContent = message;
-        document.getElementById('inputField').value = '';
+        document.getElementById('inputField').value = defaultValue;
         inputCallback = callback;
         document.getElementById('inputModal').style.display = 'block';
         document.getElementById('inputField').focus();
+        document.getElementById('inputField').select();
     }
     
     window.closeInputModal = function() {
@@ -899,9 +957,24 @@
         fetch(`/api/files/move?fileId=${encodeURIComponent(fileId)}&targetFolder=${encodeURIComponent(targetFolder)}&token=${encodeURIComponent(token)}`, {
             method: 'POST'
         })
-        .then(r => {
-            if (!r.ok) throw new Error('Ошибка перемещения файла');
-            showNotification('Файл успешно перемещен', 'success');
+        .then(async r => {
+            if (!r.ok) {
+                const text = await r.text();
+                try {
+                    const errorData = JSON.parse(text);
+                    throw new Error(errorData.error || 'Ошибка перемещения');
+                } catch {
+                    throw new Error(text || 'Ошибка перемещения');
+                }
+            }
+            return r.json();
+        })
+        .then(data => {
+            if (data.renamed) {
+                showNotification(`Файл перемещен и переименован в "${data.newName}"`, 'warning');
+            } else {
+                showNotification('Файл успешно перемещен', 'success');
+            }
             loadFiles();
         })
         .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
@@ -957,6 +1030,7 @@
             const row = $filesTable.insertRow();
             row.style.backgroundColor = '#fff3cd';
             row.innerHTML = `
+                <td></td>
                 <td colspan="4" style="text-align: center; font-weight: bold;">
                     В корзине ${trashFiles.length} элементов
                 </td>
@@ -970,6 +1044,7 @@
         if (currentPath !== '') {
             const row = $filesTable.insertRow();
             const parentPath = currentPath.includes('/') ? currentPath.substring(0, currentPath.lastIndexOf('/')) : '';
+            row.insertCell(); // Пустая ячейка для чекбокса
             const cell = row.insertCell();
             cell.style.cursor = 'pointer';
             cell.style.color = '#007acc';
@@ -985,6 +1060,7 @@
         subfolders.forEach(folder => {
             const row = $filesTable.insertRow();
             const folderName = folder.split('/').pop();
+            row.insertCell(); // Пустая ячейка для чекбокса
             const cell = row.insertCell();
             cell.style.cursor = 'pointer';
             cell.style.color = '#007acc';
@@ -1030,6 +1106,7 @@
             const itemDate = new Date(item.uploadedAt).toLocaleString();
             
             row.innerHTML = `
+                <td></td>
                 <td>📄 ${itemName}</td>
                 <td>${itemSize}</td>
                 <td>${itemDate}</td>
@@ -1046,7 +1123,7 @@
         if (itemsInPath.length === 0 && subfolders.length === 0 && currentPath === '') {
             const row = $filesTable.insertRow();
             row.innerHTML = `
-                <td colspan="5" style="text-align: center; color: #666; font-style: italic;">
+                <td colspan="6" style="text-align: center; color: #666; font-style: italic;">
                     Корзина пуста
                 </td>
             `;
@@ -1096,6 +1173,95 @@
         });
     };
     
+    function validateFileName(name) {
+        if (!name || name.trim().length === 0) {
+            throw new Error('Имя не может быть пустым');
+        }
+        
+        const trimmed = name.trim();
+        if (trimmed.length > 255) {
+            throw new Error('Имя слишком длинное (максимум 255 символов)');
+        }
+        
+        if (/[<>:"/\\|?*]/.test(trimmed)) {
+            throw new Error('Имя содержит запрещенные символы: < > : " / \\ | ? *');
+        }
+        
+        if (trimmed === '.' || trimmed === '..') {
+            throw new Error('Недопустимое имя');
+        }
+        
+        const reserved = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
+        const upperName = trimmed.toUpperCase();
+        for (const res of reserved) {
+            if (upperName === res || upperName.startsWith(res + '.')) {
+                throw new Error(`Зарезервированное имя: ${res}`);
+            }
+        }
+        
+        return trimmed;
+    }
+    
+    window.renameFile = function(fileId) {
+        const fileName = fileId.includes('/') ? fileId.split('/').pop() : fileId;
+        showInput('Переименовать файл', `Новое имя для "${fileName}":`, (newName) => {
+            try {
+                const validName = validateFileName(newName);
+                const token = getAuthToken();
+                
+                fetch(`/api/files/rename?fileId=${encodeURIComponent(fileId)}&newName=${encodeURIComponent(validName)}&token=${encodeURIComponent(token)}`, {
+                    method: 'POST'
+                })
+                .then(async r => {
+                    if (!r.ok) {
+                        const text = await r.text();
+                        try {
+                            const errorData = JSON.parse(text);
+                            throw new Error(errorData.error || 'Ошибка переименования');
+                        } catch {
+                            throw new Error(text || 'Ошибка переименования');
+                        }
+                    }
+                    showNotification('Файл успешно переименован', 'success');
+                    loadFiles();
+                })
+                .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+            } catch (e) {
+                showNotification(e.message, 'error');
+            }
+        }, fileName);
+    };
+    
+    window.renameFolder = function(folderPath) {
+        const folderName = folderPath.split('/').pop();
+        showInput('Переименовать папку', `Новое имя для "${folderName}":`, (newName) => {
+            try {
+                const validName = validateFileName(newName);
+                const token = getAuthToken();
+                
+                fetch(`/api/files/rename-folder?folderPath=${encodeURIComponent(folderPath)}&newName=${encodeURIComponent(validName)}&token=${encodeURIComponent(token)}`, {
+                    method: 'POST'
+                })
+                .then(async r => {
+                    if (!r.ok) {
+                        const text = await r.text();
+                        try {
+                            const errorData = JSON.parse(text);
+                            throw new Error(errorData.error || 'Ошибка переименования');
+                        } catch {
+                            throw new Error(text || 'Ошибка переименования');
+                        }
+                    }
+                    showNotification('Папка успешно переименована', 'success');
+                    loadFiles();
+                })
+                .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+            } catch (e) {
+                showNotification(e.message, 'error');
+            }
+        }, folderName);
+    };
+    
     function updateQuotaDisplay(quota) {
         const percentage = Math.min(100, quota.percentage);
         const usedGB = (quota.used / 1024 / 1024 / 1024).toFixed(2);
@@ -1107,14 +1273,190 @@
         
         // Цвет прогрессбара в зависимости от заполненности
         if (percentage < 70) {
-            $quotaProgress.style.background = '#28a745';
+            $quotaProgress.style.backgroundColor = '#28a745';
         } else if (percentage < 90) {
-            $quotaProgress.style.background = '#ffc107';
+            $quotaProgress.style.backgroundColor = '#ffc107';
         } else {
-            $quotaProgress.style.background = '#dc3545';
+            $quotaProgress.style.backgroundColor = '#dc3545';
         }
     }
 
+    // Функции множественного выделения
+    window.toggleSelectAll = function() {
+        const selectAllCheckbox = document.getElementById('selectAll');
+        const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+        
+        fileCheckboxes.forEach(checkbox => {
+            checkbox.checked = selectAllCheckbox.checked;
+            toggleFileSelection(checkbox.closest('tr').dataset.fileId, checkbox);
+        });
+    };
+    
+    window.toggleFileSelection = function(fileId, checkbox) {
+        const row = checkbox.closest('tr');
+        
+        if (checkbox.checked) {
+            selectedFiles.add(fileId);
+            row.classList.add('selected');
+        } else {
+            selectedFiles.delete(fileId);
+            row.classList.remove('selected');
+        }
+        
+        updateBulkActionsVisibility();
+        updateSelectAllCheckbox();
+    };
+    
+    function updateBulkActionsVisibility() {
+        const bulkActions = document.getElementById('bulkActions');
+        const selectedCount = document.getElementById('selectedCount');
+        
+        if (selectedFiles.size > 0) {
+            bulkActions.style.display = 'flex';
+            selectedCount.textContent = selectedFiles.size;
+        } else {
+            bulkActions.style.display = 'none';
+        }
+    }
+    
+    function updateSelectAllCheckbox() {
+        const selectAllCheckbox = document.getElementById('selectAll');
+        const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+        const checkedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+        
+        if (fileCheckboxes.length === 0) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = false;
+        } else if (checkedCheckboxes.length === fileCheckboxes.length) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = true;
+        } else if (checkedCheckboxes.length > 0) {
+            selectAllCheckbox.indeterminate = true;
+        } else {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = false;
+        }
+    }
+    
+    window.clearSelection = function() {
+        selectedFiles.clear();
+        document.querySelectorAll('.file-checkbox').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        document.querySelectorAll('.file-row').forEach(row => {
+            row.classList.remove('selected');
+        });
+        updateBulkActionsVisibility();
+        updateSelectAllCheckbox();
+    };
+    
+    window.bulkMove = function() {
+        if (selectedFiles.size === 0) return;
+        
+        document.getElementById('moveFileName').textContent = `Переместить ${selectedFiles.size} файлов:`;
+        
+        const folderTree = document.getElementById('folderTree');
+        folderTree.innerHTML = '';
+        
+        // Корень
+        const rootItem = document.createElement('div');
+        rootItem.className = 'folder-item selected';
+        rootItem.textContent = '🏠 Хранилище';
+        rootItem.onclick = () => selectTargetFolder('', rootItem);
+        folderTree.appendChild(rootItem);
+        
+        // Папки
+        allFolders.forEach(folder => {
+            const item = document.createElement('div');
+            item.className = 'folder-item';
+            const depth = folder.split('/').length - 1;
+            item.style.paddingLeft = (20 + depth * 15) + 'px';
+            item.textContent = '📁 ' + folder.split('/').pop();
+            item.onclick = () => selectTargetFolder(folder, item);
+            folderTree.appendChild(item);
+        });
+        
+        selectedTargetFolder = '';
+        selectedMoveFile = 'bulk';
+        document.getElementById('moveModal').style.display = 'block';
+    };
+    
+    window.bulkDelete = function() {
+        if (selectedFiles.size === 0) return;
+        
+        showConfirm(`Переместить ${selectedFiles.size} файлов в корзину?`, () => {
+            const token = getAuthToken();
+            const promises = Array.from(selectedFiles).map(fileId => 
+                fetch(`/api/files/delete?id=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
+                    method: 'DELETE'
+                })
+            );
+            
+            Promise.all(promises.map(p => p.catch(e => ({ error: true, message: e.message }))))
+                .then(responses => {
+                    const failed = responses.filter(r => !r.ok && r.error !== true);
+                    const alreadyInTrash = responses.filter(r => r.error && r.message && r.message.includes('уже есть в корзине'));
+                    const success = responses.filter(r => r.ok);
+                    
+                    if (success.length > 0) {
+                        showNotification(`${success.length} файлов перемещено в корзину`, 'success');
+                    }
+                    
+                    if (alreadyInTrash.length > 0) {
+                        showNotification(`${alreadyInTrash.length} файлов не удалено - уже есть в корзине`, 'warning');
+                    }
+                    
+                    if (failed.length > 0) {
+                        showNotification(`Ошибка удаления ${failed.length} файлов`, 'error');
+                    }
+                    
+                    clearSelection();
+                    loadFiles();
+                })
+                .catch(e => {
+                    showNotification('Ошибка: ' + e.message, 'error');
+                });
+        });
+    };
+    
+    // Обновляем confirmMove для поддержки группового перемещения
+    const originalConfirmMove = window.confirmMove;
+    window.confirmMove = function() {
+        if (selectedMoveFile === 'bulk') {
+            if (selectedFiles.size === 0) return;
+            
+            const token = getAuthToken();
+            const promises = Array.from(selectedFiles).map(fileId => 
+                fetch(`/api/files/move?fileId=${encodeURIComponent(fileId)}&targetFolder=${encodeURIComponent(selectedTargetFolder)}&token=${encodeURIComponent(token)}`, {
+                    method: 'POST'
+                })
+            );
+            
+            Promise.all(promises.map(p => p.then(r => r.json().catch(() => ({}))).catch(() => ({ error: true }))))
+                .then(results => {
+                    const failed = results.filter(r => r.error);
+                    const renamed = results.filter(r => r.renamed);
+                    
+                    if (failed.length > 0) {
+                        showNotification(`Ошибка перемещения ${failed.length} файлов`, 'error');
+                    } else if (renamed.length > 0) {
+                        showNotification(`${selectedFiles.size} файлов перемещено, ${renamed.length} переименовано`, 'warning');
+                    } else {
+                        showNotification(`${selectedFiles.size} файлов успешно перемещено`, 'success');
+                    }
+                    clearSelection();
+                    loadFiles();
+                })
+                .catch(e => {
+                    showNotification('Ошибка: ' + e.message, 'error');
+                });
+            
+            closeMoveModal();
+        } else {
+            originalConfirmMove();
+        }
+    };
+    
     // Проверяем аутентификацию
     if (!accessToken && !oldToken) {
         window.location.href = '/login.html';

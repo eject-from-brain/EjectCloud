@@ -273,15 +273,19 @@ public class FileStorageService {
             throw new IllegalStateException(isFolder ? "Папка не найдена" : "Файл не найден");
         }
         
+        // Проверяем, есть ли уже такой файл в корзине
+        Path trashDir = getUserDir(telegramId).resolve("trash");
+        Path trashPath = trashDir.resolve(itemPath);
+        
+        if (Files.exists(trashPath)) {
+            throw new IllegalStateException(isFolder ? "Папка с таким именем уже есть в корзине" : "Файл с таким именем уже есть в корзине");
+        }
+        
         // Удаляем ссылки на файлы
         removeSharesForPath(telegramId, itemPath, isFolder);
         
         // Перемещаем в корзину с сохранением структуры
-        Path trashDir = getUserDir(telegramId).resolve("trash");
         Files.createDirectories(trashDir);
-        
-        // Сохраняем оригинальную структуру в корзине
-        Path trashPath = trashDir.resolve(itemPath);
         
         // Создаем родительские папки в корзине
         if (trashPath.getParent() != null) {
@@ -618,13 +622,14 @@ public class FileStorageService {
         return newFilename;
     }
     
-    public void moveFile(String telegramId, String fileId, String targetFolder) throws IOException {
+    public String moveFile(String telegramId, String fileId, String targetFolder) throws IOException {
         Path sourcePath = getUserDir(telegramId).resolve("data").resolve(fileId);
         if (!Files.exists(sourcePath)) {
             throw new IllegalStateException("Файл не найден");
         }
         
-        String fileName = sourcePath.getFileName().toString();
+        String originalFileName = sourcePath.getFileName().toString();
+        String fileName = originalFileName;
         Path targetDir = getUserDir(telegramId).resolve("data");
         
         if (targetFolder != null && !targetFolder.isEmpty() && !targetFolder.equals("/")) {
@@ -635,11 +640,13 @@ public class FileStorageService {
         }
         
         Path targetPath = targetDir.resolve(fileName);
+        boolean wasRenamed = false;
         
         // Проверяем, что файл с таким именем не существует
         if (Files.exists(targetPath)) {
             fileName = generateUniqueFilename(targetDir, fileName);
             targetPath = targetDir.resolve(fileName);
+            wasRenamed = true;
         }
         
         Files.move(sourcePath, targetPath);
@@ -657,6 +664,8 @@ public class FileStorageService {
             }
             saveUserData(telegramId, userData);
         }
+        
+        return wasRenamed ? fileName : null;
     }
 
     public FileData getFileByShare(String shareId) {
@@ -697,5 +706,104 @@ public class FileStorageService {
             // ignore
         }
         return null;
+    }
+    
+    private void validateFileName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalArgumentException("Имя не может быть пустым");
+        }
+        
+        String trimmed = name.trim();
+        if (trimmed.length() > 255) {
+            throw new IllegalArgumentException("Имя слишком длинное (максимум 255 символов)");
+        }
+        
+        if (trimmed.matches(".*[<>:\"/\\|?*].*")) {
+            throw new IllegalArgumentException("Имя содержит запрещенные символы: < > : \" / \\ | ? *");
+        }
+        
+        if (trimmed.equals(".") || trimmed.equals("..")) {
+            throw new IllegalArgumentException("Недопустимое имя");
+        }
+        
+        // Проверка на зарезервированные имена Windows
+        String upperName = trimmed.toUpperCase();
+        String[] reserved = {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
+        for (String res : reserved) {
+            if (upperName.equals(res) || upperName.startsWith(res + ".")) {
+                throw new IllegalArgumentException("Зарезервированное имя: " + res);
+            }
+        }
+    }
+    
+    public void renameFile(String telegramId, String fileId, String newName) throws IOException {
+        validateFileName(newName);
+        
+        Path filePath = getFilePath(telegramId, fileId);
+        if (!Files.exists(filePath)) {
+            throw new IllegalStateException("Файл не найден");
+        }
+        
+        // Определяем новый путь
+        Path parentDir = filePath.getParent();
+        Path newFilePath = parentDir.resolve(newName);
+        
+        if (Files.exists(newFilePath)) {
+            throw new IllegalStateException("Файл с таким именем уже существует");
+        }
+        
+        // Переименовываем файл
+        Files.move(filePath, newFilePath);
+        
+        // Обновляем ссылки
+        UserData userData = loadUserData(telegramId);
+        if (userData != null) {
+            String newFileId = fileId.contains("/") ? 
+                fileId.substring(0, fileId.lastIndexOf("/") + 1) + newName : newName;
+            
+            for (ShareData share : userData.getShares()) {
+                if (share.getFileId().equals(fileId)) {
+                    share.setFileId(newFileId);
+                }
+            }
+            saveUserData(telegramId, userData);
+        }
+    }
+    
+    public void renameFolder(String telegramId, String folderPath, String newName) throws IOException {
+        validateFileName(newName);
+        
+        Path dataDir = getUserDir(telegramId).resolve("data");
+        Path folderFullPath = dataDir.resolve(folderPath);
+        
+        if (!Files.exists(folderFullPath) || !Files.isDirectory(folderFullPath)) {
+            throw new IllegalStateException("Папка не найдена");
+        }
+        
+        // Определяем новый путь
+        Path parentDir = folderFullPath.getParent();
+        Path newFolderPath = parentDir.resolve(newName);
+        
+        if (Files.exists(newFolderPath)) {
+            throw new IllegalStateException("Папка с таким именем уже существует");
+        }
+        
+        // Переименовываем папку
+        Files.move(folderFullPath, newFolderPath);
+        
+        // Обновляем ссылки на файлы в этой папке
+        UserData userData = loadUserData(telegramId);
+        if (userData != null) {
+            String newFolderRelativePath = folderPath.contains("/") ? 
+                folderPath.substring(0, folderPath.lastIndexOf("/") + 1) + newName : newName;
+            
+            for (ShareData share : userData.getShares()) {
+                if (share.getFileId().startsWith(folderPath + "/")) {
+                    String relativePart = share.getFileId().substring(folderPath.length() + 1);
+                    share.setFileId(newFolderRelativePath + "/" + relativePart);
+                }
+            }
+            saveUserData(telegramId, userData);
+        }
     }
 }
