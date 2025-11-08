@@ -804,15 +804,26 @@
 
     window.downloadFile = function(fileId) {
         const token = getAuthToken();
-        window.open(`/api/files/download/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`);
+        window.open(`/api/files/download?fileId=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`);
     };
 
     window.shareFile = function(fileId) {
         const token = getAuthToken();
-        fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
+        fetch(`/api/files/share?fileId=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
             method: 'POST'
         })
-        .then(r => r.json())
+        .then(async r => {
+            if (!r.ok) {
+                const text = await r.text();
+                try {
+                    const errorData = JSON.parse(text);
+                    throw new Error(errorData.error || 'Ошибка сервера');
+                } catch {
+                    throw new Error(text || 'Ошибка сервера');
+                }
+            }
+            return r.json();
+        })
         .then(data => {
             const shareUrl = window.location.origin + data.shareUrl;
             navigator.clipboard.writeText(shareUrl).then(() => {
@@ -828,10 +839,21 @@
     
     window.copyExistingShare = function(fileId) {
         const token = getAuthToken();
-        fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
+        fetch(`/api/files/share?fileId=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
             method: 'POST'
         })
-        .then(r => r.json())
+        .then(async r => {
+            if (!r.ok) {
+                const text = await r.text();
+                try {
+                    const errorData = JSON.parse(text);
+                    throw new Error(errorData.error || 'Ошибка сервера');
+                } catch {
+                    throw new Error(text || 'Ошибка сервера');
+                }
+            }
+            return r.json();
+        })
         .then(data => {
             const shareUrl = window.location.origin + data.shareUrl;
             navigator.clipboard.writeText(shareUrl).then(() => {
@@ -846,7 +868,7 @@
     window.deleteShareLink = function(fileId) {
         showConfirm('Удалить ссылку на файл?', () => {
             const token = getAuthToken();
-            fetch(`/api/files/share/${encodeURIComponent(fileId)}?token=${encodeURIComponent(token)}`, {
+            fetch(`/api/files/share?fileId=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
                 method: 'DELETE'
             })
             .then(r => {

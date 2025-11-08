@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -30,14 +32,18 @@ public class FileController {
     }
 
     private String requireUserId(String token) {
-        String telegramId = jwtService.validateAccessToken(token);
-        if (telegramId != null) {
-            UserData user = storageService.getUserService().findUserByTelegramId(telegramId);
-            if (user != null) {
-                return user.getId();
+        try {
+            String telegramId = jwtService.validateAccessToken(token);
+            if (telegramId != null) {
+                UserData user = storageService.getUserService().findUserByTelegramId(telegramId);
+                if (user != null) {
+                    return user.getId();
+                }
             }
+        } catch (Exception e) {
+            throw new RuntimeException("Недействительный токен");
         }
-        throw new RuntimeException("Invalid token");
+        throw new RuntimeException("Недействительный токен");
     }
 
     @PostMapping("/upload")
@@ -177,49 +183,68 @@ public class FileController {
                 }).collect(Collectors.toList());
     }
 
-    @GetMapping("/download/{id}")
-    public ResponseEntity<?> download(@PathVariable String id, @RequestParam String token) {
-        String userId = requireUserId(token);
-        
-        FileData fileData = storageService.listFiles(userId)
-                .stream()
-                .filter(f -> f.getId().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("File not found"));
-        
-        Path filePath = storageService.getFilePath(userId, id);
+    @GetMapping("/download")
+    public ResponseEntity<?> download(@RequestParam String fileId, @RequestParam String token) {
         try {
+            String userId = requireUserId(token);
+            
+            FileData fileData = storageService.listFiles(userId)
+                    .stream()
+                    .filter(f -> f.getId().equals(fileId))
+                    .findFirst()
+                    .orElse(null);
+            
+            if (fileData == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Path filePath = storageService.getFilePath(userId, fileId);
+            if (!java.nio.file.Files.exists(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+            
             InputStreamResource resource = new InputStreamResource(new FileInputStream(filePath.toFile()));
+            
+            // Правильное кодирование имени файла для UTF-8
+            String encodedFilename = java.net.URLEncoder.encode(fileData.getFilename(), "UTF-8")
+                    .replaceAll("\\+", "%20");
+            
             return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileData.getFilename() + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, 
+                           "attachment; filename*=UTF-8''" + encodedFilename)
                     .contentLength(fileData.getSizeBytes())
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
                     .body(resource);
-        } catch (IOException e) {
-            return ResponseEntity.status(500).body("Cannot read file");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Ошибка скачивания файла: " + e.getMessage());
         }
     }
 
-    @PostMapping("/share/{id}")
-    public ResponseEntity<?> createShare(@PathVariable String id, @RequestParam String token) {
-        String userId = requireUserId(token);
+    @PostMapping("/share")
+    public ResponseEntity<?> createShare(@RequestParam String fileId, @RequestParam String token) {
         try {
-            String shareId = storageService.createShare(userId, id);
+            String userId = requireUserId(token);
+            String shareId = storageService.createShare(userId, fileId);
             String shareUrl = "/share/" + shareId;
             return ResponseEntity.ok(java.util.Map.of("shareUrl", shareUrl));
         } catch (Exception e) {
-            return ResponseEntity.status(400).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .body(java.util.Map.of("error", "Ошибка создания ссылки: " + e.getMessage()));
         }
     }
     
-    @DeleteMapping("/share/{id}")
-    public ResponseEntity<?> deleteShare(@PathVariable String id, @RequestParam String token) {
-        String userId = requireUserId(token);
+    @DeleteMapping("/share")
+    public ResponseEntity<?> deleteShare(@RequestParam String fileId, @RequestParam String token) {
         try {
-            storageService.deleteShare(userId, id);
+            String userId = requireUserId(token);
+            storageService.deleteShare(userId, fileId);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
-            return ResponseEntity.status(400).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .body(java.util.Map.of("error", e.getMessage()));
         }
     }
     
