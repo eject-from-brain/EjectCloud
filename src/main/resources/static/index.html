@@ -6,6 +6,14 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="icon" type="image/png" href="images/twitch-logo-transparent.png">
     <style>
+        :root {
+            --ec-accent: #db9215;
+            --ec-accent2: #dea440;
+            --ec-sidebar-bg1: #2c3e50;
+            --ec-sidebar-bg2: #34495e;
+            --ec-link: #007acc;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -19,7 +27,7 @@
             overflow: hidden;
         }
         
-        .hidden { display: none; }
+        .hidden { display: none !important; }
         
         #login {
             max-width: 500px;
@@ -36,15 +44,15 @@
         
         .sidebar {
             width: 280px;
-            background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+            background: linear-gradient(180deg, var(--ec-sidebar-bg1) 0%, var(--ec-sidebar-bg2) 100%);
             box-shadow: 2px 0 10px rgba(0,0,0,0.1);
             overflow-y: auto;
-            border-right: 3px solid #db9215;
+            border-right: 3px solid var(--ec-accent);
         }
         
         .sidebar-header {
             padding: 25px 20px;
-            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            background: linear-gradient(135deg, var(--ec-accent) 0%, var(--ec-accent2) 100%);
             color: white;
             font-weight: 600;
             font-size: 18px;
@@ -61,12 +69,19 @@
         
         .toolbar {
             padding: 20px 25px;
-            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            background: linear-gradient(135deg, var(--ec-accent) 0%, var(--ec-accent2) 100%);
             box-shadow: 0 2px 15px rgba(0,0,0,0.1);
             display: flex;
             gap: 15px;
             align-items: center;
             flex-wrap: wrap;
+        }
+
+        .menu-button {
+            display: none;
+            padding: 10px 12px;
+            border-radius: 10px;
+            line-height: 1;
         }
         
         .toolbar-left {
@@ -99,6 +114,34 @@
             transition: all 0.3s ease;
             font-weight: 500;
         }
+
+        .tree-item-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tree-toggle {
+            width: 18px;
+            height: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.08);
+            flex: 0 0 auto;
+        }
+
+        .tree-toggle:hover {
+            background: rgba(255,255,255,0.14);
+        }
+
+        .tree-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         
         .tree-item.root {
             margin-left: 20px;
@@ -115,14 +158,10 @@
             box-shadow: 0 2px 8px rgba(219, 146, 21, 0.3);
         }
         
-        .tree-item.folder::before {
-            content: "📁 ";
-            margin-right: 8px;
-        }
-        
+        .tree-item.folder::before,
         .tree-item.root::before {
-            content: "🏠 ";
-            margin-right: 8px;
+            content: "";
+            display: none;
         }
         
         .current-path {
@@ -131,9 +170,44 @@
             border-radius: 10px;
             margin-bottom: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-left: 4px solid #db9215;
+            border-left: 4px solid var(--ec-accent);
             font-weight: 600;
             color: #2c3e50;
+        }
+
+        .breadcrumbs {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            line-height: 1.2;
+        }
+
+        .breadcrumb-item {
+            cursor: pointer;
+            color: #2c3e50;
+            text-decoration: none;
+        }
+
+        .breadcrumb-item:hover {
+            text-decoration: underline;
+        }
+
+        .breadcrumb-sep {
+            opacity: 0.5;
+        }
+
+        .share-cell {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .share-time {
+            cursor: pointer;
+            color: var(--ec-link);
+            white-space: nowrap;
         }
         
         .files-container {
@@ -141,6 +215,74 @@
             border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             overflow: hidden;
+        }
+
+        .files-list {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-item.selected {
+            background: rgba(52, 152, 219, 0.08);
+            border-left: 4px solid #3498db;
+            padding-left: 10px;
+        }
+
+        .file-check {
+            flex: 0 0 auto;
+        }
+
+        .file-main {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .file-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            color: #2c3e50;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-meta {
+            margin-top: 4px;
+            font-size: 12px;
+            color: #6b7280;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .file-actions {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-badge {
+            flex: 0 0 auto;
+            font-size: 16px;
         }
         
         table {
@@ -301,6 +443,16 @@
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
             overflow: hidden;
         }
+
+        .actions-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .actions-list button {
+            width: 100%;
+            justify-content: flex-start;
+        }
         
         .modal-header {
             background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
@@ -426,7 +578,7 @@
         }
         
         .bulk-actions {
-            background: linear-gradient(135db, #3498db 0%, #2980b9 100%);
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
             color: white;
             padding: 15px 20px;
             border-radius: 10px;
@@ -462,30 +614,149 @@
             margin: 0;
             transform: scale(1.2);
         }
+
+        .drawer-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 1190;
+        }
         
         @media (max-width: 768px) {
-            .sidebar {
-                width: 250px;
+            body {
+                overflow: auto;
             }
-            
+
+            body.drawer-open {
+                overflow: hidden;
+            }
+
+            #app {
+                height: 100dvh;
+            }
+
+            .menu-button {
+                display: inline-flex;
+            }
+
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                width: min(320px, 86vw);
+                transform: translateX(-105%);
+                transition: transform 0.25s ease;
+                z-index: 1200;
+                border-right: none;
+                box-shadow: 10px 0 30px rgba(0,0,0,0.25);
+            }
+
+            body.drawer-open .sidebar {
+                transform: translateX(0);
+            }
+
+            body.drawer-open .drawer-backdrop {
+                display: block;
+            }
+
+            .main-content {
+                min-width: 0;
+            }
+
             .toolbar {
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                padding: calc(12px + env(safe-area-inset-top)) 12px 12px 12px;
                 flex-direction: column;
                 align-items: stretch;
+                gap: 10px;
             }
-            
+
+            .toolbar-left {
+                justify-content: flex-start;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
             .toolbar-right {
                 margin-left: 0;
-                justify-content: center;
+                justify-content: space-between;
+                gap: 10px;
+                flex-wrap: wrap;
             }
-            
+
             .quota-display {
-                justify-content: center;
+                width: 100%;
+                justify-content: space-between;
             }
-            
+
+            .quota-bar {
+                width: 100%;
+                max-width: 320px;
+            }
+
+            .file-area {
+                padding: 14px;
+            }
+
+            .current-path {
+                padding: 12px 14px;
+            }
+
             .bulk-actions {
                 flex-direction: column;
-                gap: 15px;
+                gap: 12px;
                 text-align: center;
+                position: sticky;
+                top: 0;
+                z-index: 6;
+            }
+
+            .files-container {
+                display: none;
+            }
+
+            .files-list {
+                display: block;
+            }
+
+            .file-checkbox {
+                transform: scale(1.4);
+            }
+
+            .notification {
+                left: 12px;
+                right: 12px;
+                top: calc(12px + env(safe-area-inset-top));
+                min-width: unset;
+                max-width: unset;
+            }
+
+            #uploadProgress {
+                left: 12px !important;
+                right: 12px !important;
+                top: auto !important;
+                bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+                min-width: unset !important;
+                max-height: 45vh !important;
+            }
+
+            .modal-content.actions-sheet {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                margin: 0;
+                width: 100%;
+                max-width: none;
+                border-radius: 16px 16px 0 0;
+            }
+
+            .modal-content.actions-sheet .modal-body {
+                padding-bottom: calc(25px + env(safe-area-inset-bottom));
             }
         }
     </style>
@@ -504,10 +775,15 @@
         </div>
         <div id="fileTree"></div>
     </div>
+
+    <div id="drawerBackdrop" class="drawer-backdrop" onclick="closeDrawer()"></div>
     
     <div class="main-content">
         <div class="toolbar">
             <div class="toolbar-left">
+                <button id="menuBtn" onclick="toggleDrawer()" class="secondary menu-button" title="Меню" aria-label="Меню">
+                    &#9776;
+                </button>
                 <button id="uploadBtn" onclick="uploadFiles()" class="primary">
                     📁 Добавить файлы
                 </button>
@@ -568,6 +844,8 @@
                     <tbody></tbody>
                 </table>
             </div>
+
+            <div id="filesList" class="files-list hidden"></div>
         </div>
     </div>
 </div>
@@ -623,6 +901,19 @@
                 <button onclick="closeInputModal()" class="secondary">Отмена</button>
                 <button onclick="confirmInput()" class="primary">ОК</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно действий (кнопка справа в списке) -->
+<div id="actionsModal" class="modal">
+    <div class="modal-content actions-sheet">
+        <div class="modal-header">
+            <div class="modal-title" id="actionsTitle">Действия</div>
+            <span class="close" onclick="closeActionsModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="actionsBody" class="actions-list"></div>
         </div>
     </div>
 </div>

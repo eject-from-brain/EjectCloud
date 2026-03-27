@@ -12,6 +12,11 @@
     const $filesTable = document.getElementById('filesTable').querySelector('tbody');
     const $currentPath = document.getElementById('currentPath');
     const $fileInput = document.getElementById('fileInput');
+    const $filesList = document.getElementById('filesList');
+    const $filesContainer = document.querySelector('.files-container');
+
+    const $drawerBackdrop = document.getElementById('drawerBackdrop');
+    const $menuBtn = document.getElementById('menuBtn');
 
     let currentPath = '';
     let allFiles = [];
@@ -26,9 +31,286 @@
     let uploadQueue = [];
     let isUploading = false;
     let selectedFiles = new Set();
+
+    const expandedStorage = new Set();
+    const expandedTrash = new Set();
     
     const $quotaProgress = document.getElementById('quotaProgress');
     const $quotaText = document.getElementById('quotaText');
+
+    function isMobileLayout() {
+        return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    }
+
+    function setMobileListMode(enabled) {
+        if (!$filesContainer || !$filesList) return;
+        if (enabled) {
+            $filesContainer.style.display = 'none';
+            $filesList.classList.remove('hidden');
+        } else {
+            $filesContainer.style.display = 'block';
+            $filesList.classList.add('hidden');
+        }
+    }
+
+    function openDrawer() {
+        document.body.classList.add('drawer-open');
+    }
+
+    function closeDrawer() {
+        document.body.classList.remove('drawer-open');
+    }
+
+    function toggleDrawer() {
+        if (document.body.classList.contains('drawer-open')) {
+            closeDrawer();
+        } else {
+            openDrawer();
+        }
+    }
+
+    window.openDrawer = openDrawer;
+    window.closeDrawer = closeDrawer;
+    window.toggleDrawer = toggleDrawer;
+
+    if ($drawerBackdrop) {
+        $drawerBackdrop.addEventListener('click', closeDrawer);
+    }
+    // menuBtn and drawerBackdrop also have inline onclick handlers in HTML.
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeDrawer();
+        }
+    });
+
+    async function copyTextOrPrompt(text, promptTitle) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) {
+            prompt(promptTitle || 'Скопируйте:', text);
+            return false;
+        }
+    }
+
+    // Actions modal (mobile-friendly)
+    const $actionsModal = document.getElementById('actionsModal');
+    const $actionsTitle = document.getElementById('actionsTitle');
+    const $actionsBody = document.getElementById('actionsBody');
+
+    function closeActionsModal() {
+        if ($actionsModal) $actionsModal.style.display = 'none';
+        if ($actionsBody) $actionsBody.innerHTML = '';
+    }
+    window.closeActionsModal = closeActionsModal;
+
+    if ($actionsModal) {
+        $actionsModal.addEventListener('click', (e) => {
+            if (e.target === $actionsModal) closeActionsModal();
+        });
+    }
+
+    function addActionButton(text, className, onClick) {
+        const btn = document.createElement('button');
+        btn.className = className;
+        btn.textContent = text;
+        btn.onclick = () => {
+            try { onClick(); } finally { closeActionsModal(); }
+        };
+        $actionsBody.appendChild(btn);
+    }
+
+    window.openItemActions = function(kind, id) {
+        if (!$actionsModal || !$actionsTitle || !$actionsBody) return;
+        $actionsBody.innerHTML = '';
+
+        const inTrashNow = isInTrash;
+        let title = 'Действия';
+
+        if (kind === 'file') {
+            const fileName = id.includes('/') ? id.split('/').pop() : id;
+            title = `📄 ${fileName}`;
+        } else if (kind === 'folder') {
+            const folderName = id.includes('/') ? id.split('/').pop() : id;
+            title = `📁 ${folderName}`;
+        }
+        if (inTrashNow) title += ' (Корзина)';
+        $actionsTitle.textContent = title;
+
+        if (inTrashNow) {
+            addActionButton('↩️ Восстановить', 'success', () => restoreFromTrash(id));
+            addActionButton('🗑️ Удалить навсегда', 'danger', () => deleteFromTrash(id));
+        } else if (kind === 'folder') {
+            addActionButton('✏️ Переименовать', 'secondary', () => renameFolder(id));
+            addActionButton('🗑️ Удалить папку', 'danger', () => deleteFolder(id));
+        } else {
+            // file
+            addActionButton('⬇️ Скачать', 'primary', () => downloadFile(id));
+            addActionButton('🔗 Поделиться/скопировать ссылку', 'secondary', () => shareFile(id));
+
+            const fileObj = allFiles.find(f => f.id === id);
+            if (fileObj && fileObj.shared && fileObj.shareExpiresAt) {
+                addActionButton('📋 Копировать текущую ссылку', 'secondary', () => copyExistingShare(id));
+                addActionButton('× Удалить ссылку', 'secondary', () => deleteShareLink(id));
+            }
+
+            addActionButton('✏️ Переименовать', 'secondary', () => renameFile(id));
+            addActionButton('📁 Переместить', 'secondary', () => moveFileDialog(id));
+            addActionButton('🗑️ Удалить', 'danger', () => deleteFile(id));
+        }
+
+        $actionsModal.style.display = 'block';
+    };
+
+    function renderMobileList({ parentNavigate, folders, files, inTrashMode, append = false }) {
+        if (!$filesList) return;
+        if (!append) {
+            $filesList.innerHTML = '';
+        }
+
+        const beforeCount = $filesList.children.length;
+
+        const addItem = (el) => $filesList.appendChild(el);
+
+        if (parentNavigate) {
+            const back = document.createElement('div');
+            back.className = 'file-item';
+            back.innerHTML = `
+                <div class="file-check"></div>
+                <div class="file-main">
+                    <div class="file-title" title="Назад"><span class="icon-badge">📁</span> ..</div>
+                </div>
+                <div class="file-actions"></div>
+            `;
+            back.querySelector('.file-title').onclick = parentNavigate;
+            addItem(back);
+        }
+
+        folders.forEach(folderPath => {
+            const folderName = folderPath.split('/').pop();
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.innerHTML = `
+                <div class="file-check"></div>
+                <div class="file-main">
+                    <div class="file-title" title="Открыть папку"><span class="icon-badge">📁</span> ${escapeHtml(folderName)}</div>
+                    <div class="file-meta">Папка</div>
+                </div>
+                <div class="file-actions">
+                    <button class="secondary" title="Действия">⋯</button>
+                </div>
+            `;
+
+            item.querySelector('.file-title').onclick = () => {
+                if (inTrashMode) {
+                    selectTrashPath(folderPath);
+                } else {
+                    selectPath(folderPath);
+                }
+            };
+
+            item.querySelector('button').onclick = (e) => {
+                e.stopPropagation();
+                openItemActions('folder', folderPath);
+            };
+
+            addItem(item);
+        });
+
+        files.forEach(fileObj => {
+            const fileId = fileObj.id;
+            const fileName = fileId.includes('/') ? fileId.split('/').pop() : fileId;
+            const size = fileObj.size !== undefined ? formatFileSize(fileObj.size) : ((fileObj.sizeBytes !== undefined && fileObj.sizeBytes !== null) ? formatFileSize(fileObj.sizeBytes) : '-');
+            const date = new Date(fileObj.uploadedAt).toLocaleString();
+
+            const linkInfo = (!inTrashMode && fileObj.shared && fileObj.shareExpiresAt) ? `🔗 ${getTimeUntilExpiry(fileObj.shareExpiresAt)}` : '';
+
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.dataset.fileId = fileId;
+
+            const checked = selectedFiles.has(fileId);
+            if (checked) item.classList.add('selected');
+
+            item.innerHTML = `
+                <div class="file-check">
+                    ${inTrashMode ? '' : `<input type="checkbox" class="file-checkbox" ${checked ? 'checked' : ''} />`}
+                </div>
+                <div class="file-main">
+                    <div class="file-title" title="Открыть/скачать"><span class="icon-badge">📄</span> ${escapeHtml(fileName)}</div>
+                    <div class="file-meta">
+                        <span>${escapeHtml(size)}</span>
+                        <span>${escapeHtml(date)}</span>
+                        ${linkInfo ? `<span style="cursor:pointer; color:#007acc;" title="Копировать ссылку">${escapeHtml(linkInfo)}</span>` : ''}
+                    </div>
+                </div>
+                <div class="file-actions">
+                    <button class="secondary" title="Действия">⋯</button>
+                </div>
+            `;
+
+            item.querySelector('.file-title').onclick = () => {
+                if (inTrashMode) return;
+                downloadFile(fileId);
+            };
+
+            const metaLink = item.querySelector('.file-meta span[title="Копировать ссылку"]');
+            if (metaLink) {
+                metaLink.onclick = (e) => {
+                    e.stopPropagation();
+                    copyExistingShare(fileId);
+                };
+            }
+
+            const actionsBtn = item.querySelector('.file-actions button');
+            actionsBtn.onclick = (e) => {
+                e.stopPropagation();
+                openItemActions('file', fileId);
+            };
+
+            const cb = item.querySelector('.file-checkbox');
+            if (cb) {
+                cb.onchange = function() {
+                    toggleFileSelection(fileId, cb);
+                };
+            }
+
+            addItem(item);
+        });
+
+        if ($filesList.children.length === beforeCount) {
+            const empty = document.createElement('div');
+            empty.className = 'file-item';
+            empty.innerHTML = `
+                <div class="file-check"></div>
+                <div class="file-main">
+                    <div class="file-title" style="cursor: default;"><span class="icon-badge">ℹ️</span> ${inTrashMode ? 'Корзина пуста' : 'Папка пуста'}</div>
+                </div>
+                <div class="file-actions"></div>
+            `;
+            $filesList.appendChild(empty);
+        }
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    let lastMobile = isMobileLayout();
+    setMobileListMode(lastMobile);
+    window.addEventListener('resize', () => {
+        const nowMobile = isMobileLayout();
+        if (nowMobile === lastMobile) return;
+        lastMobile = nowMobile;
+        setMobileListMode(nowMobile);
+        // rerender current view
+        if (isInTrash) showTrash(); else showFilesInPath(currentPath);
+    });
 
     function showLogin() {
         window.location.href = '/login.html';
@@ -37,6 +319,58 @@
     function showApp() {
         $login.classList.add('hidden');
         $app.classList.remove('hidden');
+    }
+
+    function renderBreadcrumb(path, inTrashMode) {
+        const parts = path ? path.split('/').filter(Boolean) : [];
+        const container = document.createElement('div');
+        container.className = 'breadcrumbs';
+
+        function addCrumb(label, onClick) {
+            const span = document.createElement('span');
+            span.className = 'breadcrumb-item';
+            span.textContent = label;
+            span.onclick = onClick;
+            container.appendChild(span);
+        }
+
+        function addSep() {
+            const sep = document.createElement('span');
+            sep.className = 'breadcrumb-sep';
+            sep.textContent = '/';
+            container.appendChild(sep);
+        }
+
+        if (inTrashMode) {
+            addCrumb('🗑️ Корзина', () => selectTrash());
+            let acc = '';
+            parts.forEach((p, idx) => {
+                addSep();
+                acc += (idx === 0 ? '' : '/') + p;
+                addCrumb(p, () => selectTrashPath(acc));
+            });
+        } else {
+            addCrumb('🏠 Хранилище', () => selectPath(''));
+            let acc = '';
+            parts.forEach((p, idx) => {
+                addSep();
+                acc += (idx === 0 ? '' : '/') + p;
+                addCrumb(p, () => selectPath(acc));
+            });
+        }
+
+        $currentPath.innerHTML = '';
+        $currentPath.appendChild(container);
+    }
+
+    function ensureExpandedForPath(path, set) {
+        if (!path) return;
+        const parts = path.split('/').filter(Boolean);
+        let acc = '';
+        parts.forEach((p, idx) => {
+            acc += (idx === 0 ? '' : '/') + p;
+            set.add(acc);
+        });
     }
 
     function showNotification(message, type = 'info') {
@@ -237,6 +571,13 @@
             trashFiles = trash;
             trashFolders = trashFoldersData;
             updateQuotaDisplay(quota);
+
+            if (isInTrash) {
+                ensureExpandedForPath(currentPath, expandedTrash);
+            } else {
+                ensureExpandedForPath(currentPath, expandedStorage);
+            }
+
             buildFileTree();
             if (isInTrash) {
                 showTrash();
@@ -247,88 +588,135 @@
         .catch(e => showNotification('Ошибка загрузки: ' + e.message, 'error'));
     }
 
-    function buildFileTree() {
-        $fileTree.innerHTML = '';
-        
-        // Корневая папка
-        const rootItem = document.createElement('div');
-        rootItem.className = 'tree-item root' + (!isInTrash && currentPath === '' ? ' selected' : '');
-        rootItem.textContent = 'Хранилище';
-        rootItem.onclick = () => selectPath('');
-        $fileTree.appendChild(rootItem);
+    function buildTreeFromPaths(paths) {
+        const root = { name: '', path: '', children: new Map() };
 
-        // Строим иерархическое дерево
-        const tree = {};
-        allFolders.forEach(folder => {
-            const parts = folder.split('/');
-            let current = tree;
-            let path = '';
-            
-            parts.forEach((part, index) => {
-                path += (index > 0 ? '/' : '') + part;
-                if (!current[part]) {
-                    current[part] = { path: path, children: {} };
+        paths.forEach(folderPath => {
+            const parts = folderPath.split('/').filter(Boolean);
+            let current = root;
+            let acc = '';
+
+            parts.forEach((part, idx) => {
+                acc += (idx === 0 ? '' : '/') + part;
+                if (!current.children.has(part)) {
+                    current.children.set(part, { name: part, path: acc, children: new Map() });
                 }
-                current = current[part].children;
+                current = current.children.get(part);
             });
         });
-        
-        // Отображаем дерево
-        renderTreeLevel(tree, $fileTree, 0);
-        
-        // Корзина в конце
-        const trashItem = document.createElement('div');
-        trashItem.className = 'tree-item' + (isInTrash && currentPath === '' ? ' selected' : '');
-        trashItem.style.paddingLeft = '30px';
-        trashItem.textContent = '🗑️ Корзина';
-        trashItem.onclick = () => selectTrash();
-        $fileTree.appendChild(trashItem);
-        
-        // Папки в корзине
-        if (isInTrash && trashFolders.length > 0) {
-            const trashTree = {};
-            trashFolders.forEach(folder => {
-                const parts = folder.split('/');
-                let current = trashTree;
-                let path = '';
-                
-                parts.forEach((part, index) => {
-                    path += (index > 0 ? '/' : '') + part;
-                    if (!current[part]) {
-                        current[part] = { path: path, children: {} };
-                    }
-                    current = current[part].children;
-                });
-            });
-            
-            renderTreeLevel(trashTree, $fileTree, 2, true);
-        }
+
+        return root;
     }
-    
-    function renderTreeLevel(level, container, depth, inTrash = false) {
-        Object.keys(level).sort().forEach(name => {
-            const node = level[name];
-            const item = document.createElement('div');
-            const isSelected = inTrash ? (isInTrash && currentPath === node.path) : (!isInTrash && currentPath === node.path);
-            item.className = 'tree-item folder' + (isSelected ? ' selected' : '');
-            item.style.paddingLeft = (30 + depth * 20) + 'px';
-            item.textContent = name;
-            item.onclick = () => inTrash ? selectTrashPath(node.path) : selectPath(node.path);
+
+    function createTreeItem({ label, icon, depth, selected, onClick, canToggle, expanded, onToggle }) {
+        const item = document.createElement('div');
+        item.className = 'tree-item' + (selected ? ' selected' : '');
+        item.style.paddingLeft = (30 + depth * 20) + 'px';
+
+        const row = document.createElement('div');
+        row.className = 'tree-item-row';
+
+        const toggle = document.createElement('span');
+        toggle.className = 'tree-toggle';
+        if (canToggle) {
+            toggle.textContent = expanded ? '▾' : '▸';
+            toggle.onclick = (e) => {
+                e.stopPropagation();
+                onToggle && onToggle();
+            };
+        } else {
+            toggle.textContent = '▸';
+            toggle.style.visibility = 'hidden';
+        }
+
+        const text = document.createElement('span');
+        text.className = 'tree-label';
+        text.textContent = `${icon} ${label}`;
+
+        row.appendChild(toggle);
+        row.appendChild(text);
+        item.appendChild(row);
+
+        item.onclick = onClick;
+        return item;
+    }
+
+    function renderTreeNodes(rootNode, container, depth, expandedSet, onSelectPath) {
+        const nodes = Array.from(rootNode.children.values()).sort((a, b) => a.name.localeCompare(b.name));
+        nodes.forEach(node => {
+            const isSelected = (!isInTrash && onSelectPath === selectPath && currentPath === node.path) || (isInTrash && onSelectPath === selectTrashPath && currentPath === node.path);
+            const hasChildren = node.children.size > 0;
+            const isExpanded = expandedSet.has(node.path);
+
+            const item = createTreeItem({
+                label: node.name,
+                icon: '📁',
+                depth,
+                selected: isSelected,
+                onClick: () => onSelectPath(node.path),
+                canToggle: hasChildren,
+                expanded: isExpanded,
+                onToggle: () => {
+                    if (isExpanded) expandedSet.delete(node.path); else expandedSet.add(node.path);
+                    buildFileTree();
+                }
+            });
+            item.classList.add('folder');
             container.appendChild(item);
-            
-            if (Object.keys(node.children).length > 0) {
-                renderTreeLevel(node.children, container, depth + 1, inTrash);
+
+            if (hasChildren && isExpanded) {
+                renderTreeNodes(node, container, depth + 1, expandedSet, onSelectPath);
             }
         });
+    }
+
+    function buildFileTree() {
+        $fileTree.innerHTML = '';
+
+        const storageTree = buildTreeFromPaths(allFolders);
+        const trashTree = buildTreeFromPaths(trashFolders);
+
+        // Storage root
+        $fileTree.appendChild(createTreeItem({
+            label: 'Хранилище',
+            icon: '🏠',
+            depth: 0,
+            selected: (!isInTrash && currentPath === ''),
+            onClick: () => selectPath(''),
+            canToggle: false
+        }));
+
+        if (!isInTrash) {
+            renderTreeNodes(storageTree, $fileTree, 0, expandedStorage, selectPath);
+        }
+
+        // Trash root
+        $fileTree.appendChild(createTreeItem({
+            label: 'Корзина',
+            icon: '🗑️',
+            depth: 0,
+            selected: (isInTrash && currentPath === ''),
+            onClick: () => selectTrash(),
+            canToggle: false
+        }));
+
+        if (isInTrash) {
+            renderTreeNodes(trashTree, $fileTree, 0, expandedTrash, selectTrashPath);
+        }
     }
 
     function selectPath(path) {
         currentPath = path;
         isInTrash = false;
+        ensureExpandedForPath(currentPath, expandedStorage);
         clearSelection();
         updateToolbarButtons();
         buildFileTree();
         showFilesInPath(path);
+
+        if (isMobileLayout()) {
+            closeDrawer();
+        }
     }
     
     function selectTrash() {
@@ -338,19 +726,28 @@
         updateToolbarButtons();
         buildFileTree();
         showTrash();
+
+        if (isMobileLayout()) {
+            closeDrawer();
+        }
     }
     
     function selectTrashPath(path) {
         isInTrash = true;
         currentPath = path;
+        ensureExpandedForPath(currentPath, expandedTrash);
         clearSelection();
         updateToolbarButtons();
         buildFileTree();
         showTrash();
+
+        if (isMobileLayout()) {
+            closeDrawer();
+        }
     }
 
     function showFilesInPath(path) {
-        $currentPath.textContent = path || 'Хранилище';
+        renderBreadcrumb(path, false);
         
         // Фильтруем файлы для текущей папки
         const filesInPath = allFiles.filter(file => {
@@ -368,6 +765,22 @@
             }
         });
 
+        setMobileListMode(isMobileLayout());
+        if (isMobileLayout()) {
+            // Mobile list: no table cards, simple list with one actions button on the right
+            const parentPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+            renderMobileList({
+                parentNavigate: path !== '' ? () => selectPath(parentPath) : null,
+                folders: subfolders,
+                files: filesInPath,
+                inTrashMode: false
+            });
+            $filesTable.innerHTML = '';
+            updateBulkActionsVisibility();
+            return;
+        }
+
+        $filesList && ($filesList.innerHTML = '');
         $filesTable.innerHTML = '';
         
         // Кнопка "Назад" (если не в корне)
@@ -439,8 +852,11 @@
             if (file.shared && file.shareExpiresAt) {
                 const timeLeft = getTimeUntilExpiry(file.shareExpiresAt);
                 shareCell.innerHTML = `
-                    <span style="cursor: pointer; color: #007acc;" onclick="copyExistingShare('${file.id}')" title="Кликните для копирования">🔗 ${timeLeft}</span>
-                    <button onclick="deleteShareLink('${file.id}')" style="margin-left: 5px; font-size: 12px; padding: 2px 6px;">×</button>
+                    <div class="share-cell">
+                        <button onclick="copyExistingShare('${file.id}')" class="secondary" title="Копировать ссылку">📋</button>
+                        <span class="share-time" onclick="copyExistingShare('${file.id}')" title="Кликните для копирования">🔗 ${timeLeft}</span>
+                        <button onclick="deleteShareLink('${file.id}')" class="secondary" title="Удалить ссылку" style="padding: 2px 8px; font-size: 16px;">×</button>
+                    </div>
                 `;
             } else {
                 shareCell.textContent = '-';
@@ -884,12 +1300,18 @@
         })
         .then(data => {
             const shareUrl = window.location.origin + data.shareUrl;
-            navigator.clipboard.writeText(shareUrl).then(() => {
-                showNotification('Ссылка скопирована в буфер обмена', 'success');
+            const fileName = fileId.split('/').pop();
+
+            // На телефоне удобно открыть системное меню "Поделиться", но ссылку все равно копируем.
+            if (navigator.share) {
+                navigator.share({ title: fileName, url: shareUrl }).catch(() => {});
+            }
+
+            copyTextOrPrompt(shareUrl, 'Ссылка для скачивания:').then((ok) => {
+                if (ok) {
+                    showNotification('Ссылка скопирована в буфер обмена', 'success');
+                }
                 loadFiles(); // Обновляем список для отображения ссылки
-            }).catch(() => {
-                prompt('Ссылка для скачивания:', shareUrl);
-                loadFiles();
             });
         })
         .catch(e => showNotification('Ошибка создания ссылки: ' + e.message, 'error'));
@@ -914,10 +1336,10 @@
         })
         .then(data => {
             const shareUrl = window.location.origin + data.shareUrl;
-            navigator.clipboard.writeText(shareUrl).then(() => {
-                showNotification('Ссылка скопирована в буфер обмена', 'success');
-            }).catch(() => {
-                prompt('Ссылка для скачивания:', shareUrl);
+            copyTextOrPrompt(shareUrl, 'Ссылка для скачивания:').then((ok) => {
+                if (ok) {
+                    showNotification('Ссылка скопирована в буфер обмена', 'success');
+                }
             });
         })
         .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
@@ -1006,7 +1428,60 @@
     };
 
     function showTrash() {
-        $currentPath.textContent = currentPath ? `🗑️ Корзина / ${currentPath}` : '🗑️ Корзина';
+        renderBreadcrumb(currentPath, true);
+        setMobileListMode(isMobileLayout());
+        if (isMobileLayout()) {
+            // Mobile list for trash
+            const itemsInPath = trashFiles.filter(item => {
+                const itemPath = item.id.includes('/') ? item.id.substring(0, item.id.lastIndexOf('/')) : '';
+                return itemPath === currentPath;
+            });
+            const subfolders = trashFolders.filter(folder => {
+                if (currentPath === '') {
+                    return !folder.includes('/');
+                } else {
+                    return folder.startsWith(currentPath + '/') &&
+                           folder.split('/').length === currentPath.split('/').length + 1;
+                }
+            });
+            const parentPath = currentPath.includes('/') ? currentPath.substring(0, currentPath.lastIndexOf('/')) : '';
+
+            // Add "clear trash" action in root
+            if (currentPath === '' && (trashFiles.length > 0 || trashFolders.length > 0)) {
+                $filesList.innerHTML = '';
+                const header = document.createElement('div');
+                header.className = 'file-item';
+                const totalCount = trashFiles.length + trashFolders.length;
+                header.innerHTML = `
+                    <div class="file-check"></div>
+                    <div class="file-main">
+                        <div class="file-title" style="cursor: default;"><span class="icon-badge">🗑️</span> В корзине ${totalCount} элементов</div>
+                        <div class="file-meta">Очистка удалит все навсегда</div>
+                    </div>
+                    <div class="file-actions">
+                        <button class="danger" title="Очистить корзину">Очистить</button>
+                    </div>
+                `;
+                header.querySelector('button').onclick = (e) => {
+                    e.stopPropagation();
+                    clearTrash();
+                };
+                $filesList.appendChild(header);
+            }
+
+            renderMobileList({
+                parentNavigate: currentPath !== '' ? () => selectTrashPath(parentPath) : null,
+                folders: subfolders,
+                files: itemsInPath,
+                inTrashMode: true,
+                append: (currentPath === '' && (trashFiles.length > 0 || trashFolders.length > 0))
+            });
+            $filesTable.innerHTML = '';
+            updateBulkActionsVisibility();
+            return;
+        }
+
+        $filesList && ($filesList.innerHTML = '');
         $filesTable.innerHTML = '';
         
         // Фильтруем элементы для текущей папки корзины
@@ -1293,7 +1768,7 @@
     };
     
     window.toggleFileSelection = function(fileId, checkbox) {
-        const row = checkbox.closest('tr');
+        const row = checkbox.closest('tr') || checkbox.closest('.file-item');
         
         if (checkbox.checked) {
             selectedFiles.add(fileId);
@@ -1344,6 +1819,9 @@
             checkbox.checked = false;
         });
         document.querySelectorAll('.file-row').forEach(row => {
+            row.classList.remove('selected');
+        });
+        document.querySelectorAll('.file-item').forEach(row => {
             row.classList.remove('selected');
         });
         updateBulkActionsVisibility();

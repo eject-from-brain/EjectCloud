@@ -6,6 +6,13 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="icon" type="image/png" href="images/twitch-logo-transparent.png">
     <style>
+        :root {
+            --ec-accent: #db9215;
+            --ec-accent2: #dea440;
+            --ec-sidebar-bg1: #2c3e50;
+            --ec-sidebar-bg2: #34495e;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -18,8 +25,20 @@
             color: #333;
             overflow: hidden;
         }
+
+        body.drawer-open {
+            overflow: hidden;
+        }
         
         .hidden { display: none; }
+
+        .drawer-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 1190;
+        }
         
         #error {
             max-width: 500px;
@@ -46,16 +65,16 @@
         
         .sidebar {
             width: 280px;
-            background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+            background: linear-gradient(180deg, var(--ec-sidebar-bg1) 0%, var(--ec-sidebar-bg2) 100%);
             color: white;
             overflow-y: auto;
             box-shadow: 2px 0 15px rgba(0,0,0,0.1);
-            border-right: 3px solid #db9215;
+            border-right: 3px solid var(--ec-accent);
         }
         
         .sidebar-header {
             padding: 25px 20px;
-            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            background: linear-gradient(135deg, var(--ec-accent) 0%, var(--ec-accent2) 100%);
             font-weight: 600;
             font-size: 18px;
             text-align: center;
@@ -90,12 +109,26 @@
         
         .toolbar {
             padding: 20px 25px;
-            background: linear-gradient(135deg, #db9215 0%, #dea440 100%);
+            background: linear-gradient(135deg, var(--ec-accent) 0%, var(--ec-accent2) 100%);
             box-shadow: 0 2px 15px rgba(0,0,0,0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
             color: white;
+        }
+
+        .toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .menu-button {
+            display: none;
+            padding: 10px 12px;
+            border-radius: 10px;
+            line-height: 1;
         }
         
         .toolbar h2 {
@@ -115,6 +148,16 @@
             padding: 25px;
             overflow-y: auto;
             background: #fafbfc;
+        }
+
+        .table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .table-wrap table {
+            min-width: 720px;
         }
         
         .dashboard-grid {
@@ -287,6 +330,61 @@
             padding: 20px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         }
+
+        .chart-container canvas {
+            width: 100%;
+            height: 260px;
+            display: block;
+        }
+
+        .admin-list {
+            display: none;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .admin-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .admin-item:last-child {
+            border-bottom: none;
+        }
+
+        .admin-main {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .admin-title {
+            font-weight: 700;
+            color: #2c3e50;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .admin-meta {
+            margin-top: 4px;
+            font-size: 12px;
+            color: #6b7280;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .admin-actions {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
         
         .monitoring-grid {
             display: grid;
@@ -398,6 +496,96 @@
             gap: 12px;
             margin-top: 25px;
         }
+
+        @media (max-width: 900px) {
+            body {
+                overflow: auto;
+            }
+
+            #app {
+                height: 100dvh;
+            }
+
+            .menu-button {
+                display: inline-flex;
+            }
+
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                width: min(320px, 86vw);
+                transform: translateX(-105%);
+                transition: transform 0.25s ease;
+                z-index: 1200;
+                border-right: none;
+                box-shadow: 10px 0 30px rgba(0,0,0,0.25);
+            }
+
+            body.drawer-open .sidebar {
+                transform: translateX(0);
+            }
+
+            body.drawer-open .drawer-backdrop {
+                display: block;
+            }
+
+            .toolbar {
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                padding: calc(12px + env(safe-area-inset-top)) 12px 12px 12px;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            .toolbar h2 {
+                font-size: 18px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 70vw;
+            }
+
+            .toolbar-right {
+                width: 100%;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .content-area {
+                padding: 14px;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+                gap: 14px;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+                align-items: stretch;
+            }
+
+            .monitoring-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .chart-container {
+                overflow: hidden;
+                padding: 14px;
+            }
+
+            .table-wrap {
+                display: none;
+            }
+
+            .admin-list {
+                display: block;
+            }
+        }
     </style>
 </head>
 <body>
@@ -417,10 +605,15 @@
         <div class="nav-item" onclick="showTab('users')">👥 Пользователи</div>
         <div class="nav-item" onclick="showTab('monitoring')">📈 Мониторинг</div>
     </div>
+
+    <div id="drawerBackdrop" class="drawer-backdrop" onclick="closeDrawer()"></div>
     
     <div class="main-content">
         <div class="toolbar">
-            <h2 id="pageTitle">Дашборд</h2>
+            <div class="toolbar-left">
+                <button id="menuBtn" onclick="toggleDrawer()" class="secondary menu-button" title="Меню" aria-label="Меню">&#9776;</button>
+                <h2 id="pageTitle">Дашборд</h2>
+            </div>
             <div class="toolbar-right">
                 <span id="who"></span>
                 <span id="timer"></span>
@@ -486,6 +679,7 @@
                 
                 <div class="card">
                     <h3>📊 Топ пользователей по использованию</h3>
+                    <div class="table-wrap">
                     <table id="topUsersTable">
                         <thead>
                             <tr>
@@ -497,6 +691,8 @@
                         </thead>
                         <tbody></tbody>
                     </table>
+                    </div>
+                    <div id="topUsersList" class="admin-list"></div>
                 </div>
             </div>
             
@@ -527,6 +723,7 @@
                 
                 <div class="card">
                     <h3>Управление пользователями</h3>
+                    <div class="table-wrap">
                     <table id="usersTable">
                         <thead>
                             <tr>
@@ -539,6 +736,8 @@
                         </thead>
                         <tbody></tbody>
                     </table>
+                    </div>
+                    <div id="usersList" class="admin-list"></div>
                 </div>
             </div>
             
@@ -652,6 +851,158 @@ let currentUser = null;
 let accessToken = null;
 let refreshToken = null;
 let refreshInterval = null;
+
+function isMobileLayout() {
+    return window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+}
+
+function openDrawer() {
+    document.body.classList.add('drawer-open');
+}
+
+function closeDrawer() {
+    document.body.classList.remove('drawer-open');
+}
+
+function toggleDrawer() {
+    if (document.body.classList.contains('drawer-open')) {
+        closeDrawer();
+    } else {
+        openDrawer();
+    }
+}
+
+window.openDrawer = openDrawer;
+window.closeDrawer = closeDrawer;
+window.toggleDrawer = toggleDrawer;
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeDrawer();
+    }
+});
+
+const $topUsersList = document.getElementById('topUsersList');
+const $usersList = document.getElementById('usersList');
+
+let lastTopUsersData = null;
+let lastUsersData = null;
+let lastHistoryData = { cpu: null, memory: null, storage: null };
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderTopUsersMobile(usersList) {
+    if (!$topUsersList) return;
+    $topUsersList.innerHTML = '';
+
+    const data = (usersList || []).slice().sort((a, b) => b.usedBytes - a.usedBytes).slice(0, 5);
+    if (data.length === 0) {
+        $topUsersList.innerHTML = '<div class="admin-item"><div class="admin-main"><div class="admin-title">Нет данных</div></div></div>';
+        return;
+    }
+
+    data.forEach(user => {
+        const usedMB = Math.round(user.usedBytes / 1024 / 1024);
+        const quotaMB = Math.round(user.quotaBytes / 1024 / 1024);
+        const percent = quotaMB > 0 ? ((usedMB / quotaMB) * 100).toFixed(1) : '0.0';
+
+        const item = document.createElement('div');
+        item.className = 'admin-item';
+        item.innerHTML = `
+            <div class="admin-main">
+                <div class="admin-title">${escapeHtml(user.username)}</div>
+                <div class="admin-meta">
+                    <span>${usedMB} MB / ${quotaMB} MB</span>
+                    <span>${percent}%</span>
+                </div>
+            </div>
+        `;
+        $topUsersList.appendChild(item);
+    });
+}
+
+function renderUsersMobile(users) {
+    if (!$usersList) return;
+    $usersList.innerHTML = '';
+
+    if (!users || users.length === 0) {
+        $usersList.innerHTML = '<div class="admin-item"><div class="admin-main"><div class="admin-title">Пользователей нет</div></div></div>';
+        return;
+    }
+
+    users.forEach(user => {
+        const quotaMB = Math.round(user.quotaBytes / 1024 / 1024);
+        const usedMB = Math.round(user.usedBytes / 1024 / 1024);
+        const usagePercent = user.usagePercent || 0;
+        const usageColor = usagePercent > 90 ? '#dc3545' : usagePercent > 70 ? '#ffc107' : '#28a745';
+
+        const item = document.createElement('div');
+        item.className = 'admin-item';
+
+        const main = document.createElement('div');
+        main.className = 'admin-main';
+        main.innerHTML = `
+            <div class="admin-title">${escapeHtml(user.displayName)}</div>
+            <div class="admin-meta">
+                <span>${escapeHtml(user.email)}</span>
+                <span>${escapeHtml(user.telegramId || '-')}</span>
+                <span>${usedMB} MB / ${quotaMB} MB (${usagePercent}%)</span>
+            </div>
+            <div style="margin-top: 8px; background: #f0f0f0; border-radius: 10px; overflow: hidden; height: 10px;">
+                <div style="height: 100%; background: ${usageColor}; width: ${Math.min(100, usagePercent)}%; transition: width 0.3s;"></div>
+            </div>
+        `;
+
+        const actions = document.createElement('div');
+        actions.className = 'admin-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'primary';
+        editBtn.textContent = '✏️';
+        editBtn.title = 'Редактировать';
+        editBtn.onclick = () => openEditUserModal(user.id, user.email, user.displayName, user.telegramId, quotaMB);
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'secondary';
+        resetBtn.textContent = '🔑';
+        resetBtn.title = 'Сбросить пароль';
+        resetBtn.onclick = () => resetPassword(user.id);
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'danger';
+        delBtn.textContent = '🗑️';
+        delBtn.title = 'Удалить';
+        delBtn.onclick = () => deleteUser(user.id, user.displayName);
+
+        actions.appendChild(editBtn);
+        actions.appendChild(resetBtn);
+        actions.appendChild(delBtn);
+
+        item.appendChild(main);
+        item.appendChild(actions);
+        $usersList.appendChild(item);
+    });
+}
+
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        if (lastTopUsersData) renderTopUsersMobile(lastTopUsersData);
+        if (lastUsersData) renderUsersMobile(lastUsersData);
+
+        if (lastHistoryData.cpu) drawChart(lastHistoryData.cpu, 'cpu');
+        if (lastHistoryData.memory) drawChart(lastHistoryData.memory, 'memory');
+        if (lastHistoryData.storage) drawChart(lastHistoryData.storage, 'storage');
+    }, 150);
+});
 
 // Проверка токена при загрузке
 window.onload = function() {
@@ -790,6 +1141,10 @@ function showTab(tabName) {
         'monitoring': 'Мониторинг'
     };
     document.getElementById('pageTitle').textContent = titles[tabName];
+
+    if (isMobileLayout()) {
+        closeDrawer();
+    }
     
     // Загрузить данные для вкладки
     if (tabName === 'users') {
@@ -878,6 +1233,9 @@ function updateUserMetrics(users) {
 function updateTopUsers(usersList) {
     const tbody = document.querySelector('#topUsersTable tbody');
     tbody.innerHTML = '';
+
+    lastTopUsersData = usersList;
+    renderTopUsersMobile(usersList);
     
     usersList
         .sort((a, b) => b.usedBytes - a.usedBytes)
@@ -913,6 +1271,8 @@ function loadUsers() {
         })
         .then(users => {
             if (!users) return;
+            lastUsersData = users;
+            renderUsersMobile(users);
             const tbody = document.querySelector('#usersTable tbody');
             tbody.innerHTML = '';
             
@@ -1032,6 +1392,7 @@ function loadHistory(period = '1h', type = 'cpu') {
         })
         .then(data => {
             if (data) {
+                lastHistoryData[type] = data.entries;
                 drawChart(data.entries, type);
             }
         })
@@ -1042,22 +1403,32 @@ function drawChart(entries, type) {
     const canvasId = type + 'Chart';
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
-    
+
+    const cssHeight = 260;
+    const cssWidth = Math.max(320, (canvas.parentElement && canvas.parentElement.clientWidth) ? canvas.parentElement.clientWidth : 600);
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.style.width = cssWidth + 'px';
+    canvas.style.height = cssHeight + 'px';
+    canvas.width = Math.floor(cssWidth * dpr);
+    canvas.height = Math.floor(cssHeight * dpr);
+
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
     
     if (!entries || entries.length === 0) {
         ctx.fillStyle = '#666';
         ctx.font = '16px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('Нет данных', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('Нет данных', cssWidth / 2, cssHeight / 2);
         return;
     }
-    
-    const padding = 50;
+
+    const padding = Math.min(50, Math.max(36, Math.floor(cssWidth * 0.12)));
     const bottomPadding = 30;
-    const chartWidth = canvas.width - 2 * padding;
-    const chartHeight = canvas.height - padding - bottomPadding;
+    const chartWidth = cssWidth - 2 * padding;
+    const chartHeight = cssHeight - padding - bottomPadding;
     
     // Оси
     ctx.strokeStyle = '#ddd';
@@ -1116,8 +1487,9 @@ function drawChart(entries, type) {
     
     const labelCount = Math.min(6, timeLabels.length);
     for (let i = 0; i < labelCount; i++) {
-        const x = padding + (i / (labelCount - 1)) * chartWidth;
-        const labelIndex = Math.floor((i / (labelCount - 1)) * (timeLabels.length - 1));
+        const denom = (labelCount - 1) || 1;
+        const x = padding + (i / denom) * chartWidth;
+        const labelIndex = Math.floor((i / denom) * (timeLabels.length - 1));
         ctx.fillText(timeLabels[labelIndex], x, padding + chartHeight + 15);
     }
     
