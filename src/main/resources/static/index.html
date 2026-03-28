@@ -83,6 +83,9 @@
             border-radius: 10px;
             line-height: 1;
         }
+
+        .btn-icon { display: inline-flex; }
+        .btn-text { display: inline; }
         
         .toolbar-left {
             display: flex;
@@ -615,6 +618,178 @@
             transform: scale(1.2);
         }
 
+        /* Task center (bubble + right drawer) */
+        .task-bubble {
+            position: static;
+            width: 104px;
+            height: 30px;
+            border-radius: 999px;
+            border: none;
+            cursor: pointer;
+            z-index: 2200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.92);
+            border: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+            backdrop-filter: blur(10px);
+            overflow: hidden;
+            position: relative;
+            padding: 0;
+        }
+
+        .task-bubble-fill {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 0%;
+            background: linear-gradient(90deg, #2ecc71 0%, #27ae60 100%);
+            z-index: 0;
+            transition: width 0.2s ease;
+        }
+
+        #taskBubbleHostMobile,
+        #taskBubbleHostDesktop {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .task-bubble .pct {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1;
+            font-weight: 800;
+            color: #2c3e50;
+            font-size: 12px;
+            letter-spacing: 0.2px;
+        }
+
+        .task-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.35);
+            z-index: 2190;
+        }
+
+        .task-drawer {
+            position: fixed;
+            top: 0;
+            right: 0;
+            height: 100dvh;
+            width: min(420px, 92vw);
+            background: white;
+            z-index: 2195;
+            transform: translateX(110%);
+            transition: transform 0.25s ease;
+            box-shadow: -14px 0 40px rgba(0,0,0,0.25);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .task-drawer.open {
+            transform: translateX(0);
+        }
+
+        .task-drawer-header {
+            padding: 16px 16px;
+            background: linear-gradient(135deg, var(--ec-accent) 0%, var(--ec-accent2) 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .task-drawer-title {
+            font-weight: 800;
+            font-size: 16px;
+        }
+
+        .task-drawer-body {
+            padding: 14px;
+            overflow: auto;
+            flex: 1;
+            background: #fafbfc;
+        }
+
+        .task-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .task-item {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #eee;
+            padding: 12px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+            margin-bottom: 10px;
+        }
+
+        .task-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .task-title {
+            font-weight: 800;
+            color: #2c3e50;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .task-state {
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            opacity: 0.8;
+        }
+
+        .task-meta {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .task-bar {
+            margin-top: 10px;
+            height: 10px;
+            background: #eef2f7;
+            border-radius: 99px;
+            overflow: hidden;
+        }
+
+        .task-bar-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+
+        .task-details {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #4b5563;
+        }
+
+        .task-line {
+            padding: 4px 0;
+            border-bottom: 1px dashed rgba(0,0,0,0.08);
+        }
+
+        .task-line:last-child {
+            border-bottom: none;
+        }
+
         .drawer-backdrop {
             display: none;
             position: fixed;
@@ -678,24 +853,65 @@
             .toolbar-left {
                 justify-content: flex-start;
                 gap: 10px;
-                flex-wrap: wrap;
+                flex-wrap: nowrap;
+            }
+
+            #taskBubble {
+                width: 116px;
+                height: 34px;
+            }
+
+            #taskBubble .pct {
+                font-size: 13px;
+            }
+
+            /* Row 1 icons only */
+            #uploadBtn,
+            #createFolderBtn {
+                padding: 10px 12px;
+                min-width: auto;
+            }
+
+            #uploadBtn .btn-text,
+            #createFolderBtn .btn-text {
+                display: none;
             }
 
             .toolbar-right {
                 margin-left: 0;
                 justify-content: space-between;
                 gap: 10px;
-                flex-wrap: wrap;
+                flex-wrap: nowrap;
             }
 
             .quota-display {
-                width: 100%;
-                justify-content: space-between;
+                flex: 1 1 auto;
+                justify-content: flex-start;
+                gap: 10px;
             }
 
             .quota-bar {
-                width: 100%;
-                max-width: 320px;
+                flex: 1 1 auto;
+                max-width: none;
+            }
+
+            .quota-text {
+                white-space: nowrap;
+            }
+
+            .user-info {
+                display: none;
+            }
+
+            #adminPanelBtn,
+            .toolbar-right > button[onclick="logout()"] {
+                padding: 10px 12px;
+                min-width: auto;
+            }
+
+            #adminPanelBtn .btn-text,
+            .toolbar-right > button[onclick="logout()"] .btn-text {
+                display: none;
             }
 
             .file-area {
@@ -758,6 +974,7 @@
             .modal-content.actions-sheet .modal-body {
                 padding-bottom: calc(25px + env(safe-area-inset-bottom));
             }
+
         }
     </style>
 </head>
@@ -785,15 +1002,20 @@
                     &#9776;
                 </button>
                 <button id="uploadBtn" onclick="uploadFiles()" class="primary">
-                    📁 Добавить файлы
+                    <span class="btn-icon" aria-hidden="true">📄</span>
+                    <span class="btn-text"> Добавить файлы</span>
                 </button>
                 <button id="createFolderBtn" onclick="createFolder()" class="primary">
-                    📂 Создать папку
+                    <span class="btn-icon" aria-hidden="true">📂</span>
+                    <span class="btn-text"> Создать папку</span>
                 </button>
+
+                <span id="taskBubbleHostMobile"></span>
             </div>
             
             <div class="toolbar-right">
                 <div class="quota-display">
+                    <span id="taskBubbleHostDesktop"></span>
                     <div class="quota-bar">
                         <div id="quotaProgress" class="quota-fill"></div>
                     </div>
@@ -806,28 +1028,31 @@
                 </div>
                 
                 <button id="adminPanelBtn" onclick="openAdminPanel()" class="success" style="display: none;" title="Админ-панель">
-                    🔧 Админ
+                    <span class="btn-icon" aria-hidden="true">🔑</span>
+                    <span class="btn-text"> Админ</span>
                 </button>
                 <button onclick="logout()" class="danger" title="Выйти">
-                    🚪 Выход
+                    <span class="btn-icon" aria-hidden="true">🚪</span>
+                    <span class="btn-text"> Выход</span>
                 </button>
             </div>
         </div>
         
-        <div class="file-area">
-            <div id="currentPath" class="current-path"></div>
-            
-            <!-- Панель групповых операций -->
+            <div class="file-area">
+            <!-- Панель групповых операций (over breadcrumbs) -->
             <div id="bulkActions" class="bulk-actions" style="display: none;">
                 <div class="bulk-info">
-                    <span id="selectedCount">0</span> файлов выбрано
+                    <span id="selectedCount">0</span> выбрано
                 </div>
                 <div class="bulk-buttons">
+                    <button onclick="bulkDownload()" class="success">⬇️ Скачать</button>
                     <button onclick="bulkMove()" class="primary">📁 Переместить</button>
                     <button onclick="bulkDelete()" class="danger">🗑️ Удалить</button>
                     <button onclick="clearSelection()" class="secondary">❌ Отменить</button>
                 </div>
             </div>
+
+            <div id="currentPath" class="current-path"></div>
             
             <div class="files-container">
                 <table id="filesTable">
@@ -918,6 +1143,24 @@
     </div>
 </div>
 
+<!-- Центр задач -->
+<div id="taskBackdrop" class="task-backdrop hidden"></div>
+<button id="taskBubble" class="task-bubble" title="Задачи">
+    <span id="taskBubbleFill" class="task-bubble-fill" aria-hidden="true"></span>
+    <span id="taskBubblePct" class="pct"></span>
+</button>
+<aside id="taskDrawer" class="task-drawer" aria-label="Задачи">
+    <div class="task-drawer-header">
+        <div class="task-drawer-title">Задачи</div>
+        <div class="task-controls">
+            <button id="taskClearCompleted" class="secondary" title="Очистить завершенные">Очистить</button>
+            <button class="secondary" onclick="TaskCenter && TaskCenter.closeDrawer && TaskCenter.closeDrawer()" title="Закрыть">×</button>
+        </div>
+    </div>
+    <div id="taskList" class="task-drawer-body"></div>
+</aside>
+
+<script src="task-center.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

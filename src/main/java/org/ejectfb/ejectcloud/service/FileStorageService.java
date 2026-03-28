@@ -261,6 +261,20 @@ public class FileStorageService {
     public Path getFilePath(String telegramId, String fileId) {
         return getUserDir(telegramId).resolve("data").resolve(fileId);
     }
+
+    public Path getDataDir(String telegramId) {
+        return getUserDir(telegramId).resolve("data");
+    }
+
+    public Path getArchivesDir(String telegramId) {
+        Path dir = Paths.get(baseDir, "_archives", telegramId);
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            throw new RuntimeException("Cannot create archives directory", e);
+        }
+        return dir;
+    }
     
     public void createDirectory(String telegramId, String path) throws IOException {
         Path dataDir = getUserDir(telegramId).resolve("data").resolve(path);

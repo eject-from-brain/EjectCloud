@@ -3,12 +3,18 @@ package org.ejectfb.ejectcloud.controller;
 import org.ejectfb.ejectcloud.model.FileData;
 import org.ejectfb.ejectcloud.model.UserData;
 import org.ejectfb.ejectcloud.service.FileStorageService;
+import org.ejectfb.ejectcloud.service.ArchiveService;
 import org.ejectfb.ejectcloud.service.JwtService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import java.nio.charset.StandardCharsets;
 
 import java.io.*;
 import java.net.URLDecoder;
@@ -20,15 +26,18 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/files")
 public class FileController {
+    private static final Logger log = LoggerFactory.getLogger(FileController.class);
     private final FileStorageService storageService;
     private final JwtService jwtService;
+    private final ArchiveService archiveService;
     
     @Value("${ejectcloud.upload.timeout:10800000}")
     private long uploadTimeout;
 
-    public FileController(FileStorageService storageService, JwtService jwtService) {
+    public FileController(FileStorageService storageService, JwtService jwtService, ArchiveService archiveService) {
         this.storageService = storageService;
         this.jwtService = jwtService;
+        this.archiveService = archiveService;
     }
 
     private String requireUserId(String token) {
@@ -320,6 +329,92 @@ public class FileController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/archive")
+    public ResponseEntity<?> startArchive(@RequestParam String token,
+                                         @RequestParam(required = false, defaultValue = "") String path,
+                                         @RequestParam(required = false) String fileName) {
+        try {
+            String userId = requireUserId(token);
+            String safePath = URLEncoder.encode(path == null ? "" : path, StandardCharsets.UTF_8);
+            String safeName = URLEncoder.encode(fileName == null ? "" : fileName, StandardCharsets.UTF_8);
+            log.info("[archive] request start userId={} pathEnc='{}' fileNameEnc='{}'", userId, safePath, safeName);
+            String jobId = archiveService.startJob(userId, path, fileName);
+            return ResponseEntity.ok(java.util.Map.of("jobId", jobId));
+        } catch (Exception e) {
+            log.warn("[archive] request start error path='{}' fileName='{}' msg={}", path, fileName, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/archive/status")
+    public ResponseEntity<?> archiveStatus(@RequestParam String token, @RequestParam String jobId) {
+        try {
+            String userId = requireUserId(token);
+            log.debug("[archive] status userId={} jobId={}", userId, jobId);
+            return ResponseEntity.ok(archiveService.getStatus(userId, jobId));
+        } catch (Exception e) {
+            log.debug("[archive] status error jobId={} msg={}", jobId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping(value = "/archive/download", produces = "application/zip")
+    public ResponseEntity<StreamingResponseBody> downloadArchive(@RequestParam String token, @RequestParam String jobId) {
+        try {
+            String userId = requireUserId(token);
+            Path zipPath = archiveService.getZipPathForDownload(userId, jobId);
+            if (!java.nio.file.Files.exists(zipPath)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            String name = archiveService.getFileName(userId, jobId);
+            String encodedFilename = java.net.URLEncoder.encode(name, "UTF-8").replaceAll("\\+", "%20");
+
+            long len = java.nio.file.Files.size(zipPath);
+            log.info("[archive] download start userId={} jobId={} file={} bytes={}", userId, jobId, zipPath, len);
+
+            StreamingResponseBody body = outputStream -> {
+                try (InputStream in = new BufferedInputStream(new FileInputStream(zipPath.toFile()));
+                     BufferedOutputStream out = new BufferedOutputStream(outputStream)) {
+                    byte[] buf = new byte[64 * 1024];
+                    int r;
+                    while ((r = in.read(buf)) != -1) {
+                        out.write(buf, 0, r);
+                    }
+                    out.flush();
+                    log.info("[archive] download done userId={} jobId={}", userId, jobId);
+                } catch (Exception ex) {
+                    log.warn("[archive] download aborted userId={} jobId={} msg={}", userId, jobId, ex.getMessage());
+                    throw ex;
+                }
+            };
+
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedFilename)
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .contentLength(len)
+                .body(body);
+        } catch (Exception e) {
+            log.warn("[archive] download error jobId={} msg={}", jobId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+    }
+
+    @DeleteMapping("/archive")
+    public ResponseEntity<?> deleteArchive(@RequestParam String token, @RequestParam String jobId) {
+        try {
+            String userId = requireUserId(token);
+            archiveService.deleteJob(userId, jobId);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         }
     }
 }

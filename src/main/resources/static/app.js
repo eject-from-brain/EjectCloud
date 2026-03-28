@@ -30,7 +30,39 @@
     let refreshInterval = null;
     let uploadQueue = [];
     let isUploading = false;
-    let selectedFiles = new Set();
+    let selectedItems = new Set();
+
+    let uploadTotalBytes = 0;
+    let uploadDoneBytes = 0;
+    let currentUploadFile = null;
+    let currentUploadLoaded = 0;
+    let currentUploadTotal = 0;
+    let uploadSpeedLine = '';
+    let uploadSizeLine = '';
+
+    function itemKey(kind, id) {
+        return kind + ':' + id;
+    }
+
+    function parseItemKey(key) {
+        const idx = key.indexOf(':');
+        if (idx === -1) return { kind: 'file', id: key };
+        return { kind: key.slice(0, idx), id: key.slice(idx + 1) };
+    }
+
+    function selectedByKind(kind) {
+        return Array.from(selectedItems)
+            .map(parseItemKey)
+            .filter(x => x.kind === kind)
+            .map(x => x.id);
+    }
+
+    function formatTimestamp() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '_' +
+            pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
+    }
 
     const expandedStorage = new Set();
     const expandedTrash = new Set();
@@ -72,6 +104,18 @@
     window.openDrawer = openDrawer;
     window.closeDrawer = closeDrawer;
     window.toggleDrawer = toggleDrawer;
+
+    // TaskCenter close hook: allow per-task cleanup
+    window.addEventListener('taskcenter:close', (e) => {
+        const task = e && e.detail && e.detail.task;
+        if (!task) return;
+        if (task.meta && task.meta.type === 'archive' && task.meta.jobId) {
+            const token = getAuthToken();
+            fetch(`/api/files/archive?token=${encodeURIComponent(token)}&jobId=${encodeURIComponent(task.meta.jobId)}`, {
+                method: 'DELETE'
+            }).catch(() => {});
+        }
+    });
 
     if ($drawerBackdrop) {
         $drawerBackdrop.addEventListener('click', closeDrawer);
@@ -141,6 +185,7 @@
             addActionButton('↩️ Восстановить', 'success', () => restoreFromTrash(id));
             addActionButton('🗑️ Удалить навсегда', 'danger', () => deleteFromTrash(id));
         } else if (kind === 'folder') {
+            addActionButton('⬇️ Скачать папку', 'primary', () => downloadFolderArchive(id));
             addActionButton('✏️ Переименовать', 'secondary', () => renameFolder(id));
             addActionButton('🗑️ Удалить папку', 'danger', () => deleteFolder(id));
         } else {
@@ -190,6 +235,11 @@
             const folderName = folderPath.split('/').pop();
             const item = document.createElement('div');
             item.className = 'file-item';
+            item.dataset.itemKind = 'folder';
+            item.dataset.itemId = folderPath;
+
+            const folderChecked = selectedItems.has(itemKey('folder', folderPath));
+            if (folderChecked) item.classList.add('selected');
             item.innerHTML = `
                 <div class="file-check"></div>
                 <div class="file-main">
@@ -200,6 +250,14 @@
                     <button class="secondary" title="Действия">⋯</button>
                 </div>
             `;
+
+            if (!inTrashMode) {
+                const checkWrap = item.querySelector('.file-check');
+                checkWrap.innerHTML = `<input type="checkbox" class="file-checkbox" ${folderChecked ? 'checked' : ''} />`;
+                const cb = checkWrap.querySelector('input');
+                cb.addEventListener('click', (e) => e.stopPropagation());
+                cb.onchange = () => toggleItemSelection('folder', folderPath, cb);
+            }
 
             item.querySelector('.file-title').onclick = () => {
                 if (inTrashMode) {
@@ -229,7 +287,10 @@
             item.className = 'file-item';
             item.dataset.fileId = fileId;
 
-            const checked = selectedFiles.has(fileId);
+            item.dataset.itemKind = 'file';
+            item.dataset.itemId = fileId;
+
+            const checked = selectedItems.has(itemKey('file', fileId));
             if (checked) item.classList.add('selected');
 
             item.innerHTML = `
@@ -250,9 +311,15 @@
             `;
 
             item.querySelector('.file-title').onclick = () => {
-                if (inTrashMode) return;
-                downloadFile(fileId);
+                openItemActions('file', fileId);
             };
+
+            item.addEventListener('click', (e) => {
+                const t = e.target;
+                if (t && (t.tagName === 'INPUT' || t.tagName === 'BUTTON')) return;
+                // allow tapping row to open the same menu
+                openItemActions('file', fileId);
+            });
 
             const metaLink = item.querySelector('.file-meta span[title="Копировать ссылку"]');
             if (metaLink) {
@@ -270,8 +337,9 @@
 
             const cb = item.querySelector('.file-checkbox');
             if (cb) {
+                cb.addEventListener('click', (e) => e.stopPropagation());
                 cb.onchange = function() {
-                    toggleFileSelection(fileId, cb);
+                    toggleItemSelection('file', fileId, cb);
                 };
             }
 
@@ -357,6 +425,18 @@
                 acc += (idx === 0 ? '' : '/') + p;
                 addCrumb(p, () => selectPath(acc));
             });
+
+            // Download current folder (button at end)
+            const dl = document.createElement('button');
+            dl.className = 'secondary';
+            dl.style.marginLeft = '10px';
+            dl.textContent = 'Скачать';
+            dl.title = 'Скачать текущую папку архивом';
+            dl.onclick = (e) => {
+                e.stopPropagation();
+                downloadCurrentFolder();
+            };
+            container.appendChild(dl);
         }
 
         $currentPath.innerHTML = '';
@@ -473,6 +553,8 @@
                         // Показываем кнопку админ-панели для админов
                         if (j.isAdmin) {
                             document.getElementById('adminPanelBtn').style.display = 'inline-block';
+                            const drawerAdmin = document.getElementById('adminPanelBtnDrawer');
+                            if (drawerAdmin) drawerAdmin.style.display = 'block';
                         }
                         
                         showApp();
@@ -802,8 +884,12 @@
         // Подпапки
         subfolders.forEach(folder => {
             const row = $filesTable.insertRow();
+            row.dataset.itemKind = 'folder';
+            row.dataset.itemId = folder;
             const folderName = folder.split('/').pop();
-            row.insertCell(); // Пустая ячейка для чекбокса
+            const checkboxCell = row.insertCell();
+            const checked = selectedItems.has(itemKey('folder', folder));
+            checkboxCell.innerHTML = `<input type="checkbox" class="file-checkbox" ${checked ? 'checked' : ''} onchange="toggleItemSelection('folder','${folder}', this)">`;
             const cell = row.insertCell();
             cell.style.cursor = 'pointer';
             cell.style.color = '#007acc';
@@ -816,24 +902,30 @@
             const actionsCell = row.insertCell();
             actionsCell.innerHTML = `
                 <div class="action-buttons">
+                    <button onclick="event.stopPropagation(); downloadFolderArchive('${folder}')" class="primary" title="Скачать папку">⬇️</button>
                     <button onclick="event.stopPropagation(); renameFolder('${folder}')" class="secondary" title="Переименовать">✏️</button>
                     <button onclick="event.stopPropagation(); deleteFolder('${folder}')" class="danger" title="Удалить папку">🗑️</button>
                 </div>
             `;
+
+            if (checked) row.classList.add('selected');
         });
         
         // Файлы
         filesInPath.forEach(file => {
             const row = $filesTable.insertRow();
             row.className = 'file-row';
-            row.dataset.fileId = file.id;
+            row.dataset.itemKind = 'file';
+            row.dataset.itemId = file.id;
             const fileName = file.id.includes('/') ? file.id.split('/').pop() : file.id;
             const fileSize = formatFileSize(file.size);
             const fileDate = new Date(file.uploadedAt).toLocaleString();
             
             // Чекбокс
             const checkboxCell = row.insertCell();
-            checkboxCell.innerHTML = `<input type="checkbox" class="file-checkbox" onchange="toggleFileSelection('${file.id}', this)">`;
+            const checked = selectedItems.has(itemKey('file', file.id));
+            checkboxCell.innerHTML = `<input type="checkbox" class="file-checkbox" ${checked ? 'checked' : ''} onchange="toggleItemSelection('file','${file.id}', this)">`;
+            if (checked) row.classList.add('selected');
             
             // Название файла
             const nameCell = row.insertCell();
@@ -889,13 +981,16 @@
     function updateToolbarButtons() {
         const uploadBtn = document.getElementById('uploadBtn');
         const createFolderBtn = document.getElementById('createFolderBtn');
+        const downloadFolderBtn = document.getElementById('downloadFolderBtn');
         
         if (isInTrash) {
             uploadBtn.style.display = 'none';
             createFolderBtn.style.display = 'none';
+            if (downloadFolderBtn) downloadFolderBtn.style.display = 'none';
         } else {
             uploadBtn.style.display = 'inline-block';
             createFolderBtn.style.display = 'inline-block';
+            if (downloadFolderBtn) downloadFolderBtn.style.display = 'inline-flex';
         }
     }
 
@@ -944,14 +1039,10 @@
         if (filesToUpload.length > 0) {
             filesToUpload.forEach(file => {
                 uploadQueue.push({ file, path: currentPath });
+                uploadTotalBytes += file.size;
             });
-            
-            // Показываем/обновляем прогресс
-            if (!document.getElementById('uploadProgress')) {
-                showUploadProgress();
-            } else {
-                updateUploadProgressDisplay();
-            }
+
+            showUploadProgress();
             
             // Запускаем обработку очереди если не загружаем
             if (!isUploading) {
@@ -966,6 +1057,9 @@
         if (uploadQueue.length === 0) {
             isUploading = false;
             window.currentUploadFile = null;
+            currentUploadFile = null;
+            currentUploadLoaded = 0;
+            currentUploadTotal = 0;
             setTimeout(() => {
                 hideUploadProgress();
                 loadFiles();
@@ -976,6 +1070,9 @@
         isUploading = true;
         const { file, path } = uploadQueue.shift();
         window.currentUploadFile = file.name;
+        currentUploadFile = file.name;
+        currentUploadLoaded = 0;
+        currentUploadTotal = file.size;
         
         if (!window.uploadedFiles) window.uploadedFiles = [];
         updateUploadProgressDisplay();
@@ -1044,9 +1141,19 @@
                         // Игнорируем ошибки парсинга
                     }
                     window.uploadedFiles.push(file.name);
+                    uploadDoneBytes += file.size;
+                    currentUploadLoaded = 0;
+                    currentUploadTotal = 0;
+                    currentUploadFile = null;
+                    updateUploadProgressDisplay();
                     processUploadQueue();
                 } else {
                     showNotification(`Ошибка загрузки ${file.name}: ${xhr.responseText}`, 'error');
+                    uploadDoneBytes += file.size;
+                    currentUploadLoaded = 0;
+                    currentUploadTotal = 0;
+                    currentUploadFile = null;
+                    updateUploadProgressDisplay();
                     processUploadQueue();
                 }
             };
@@ -1054,12 +1161,22 @@
             xhr.onerror = function() {
                 clearInterval(tokenRefreshInterval);
                 showNotification(`Ошибка загрузки ${file.name}: Соединение прервано`, 'error');
+                uploadDoneBytes += file.size;
+                currentUploadLoaded = 0;
+                currentUploadTotal = 0;
+                currentUploadFile = null;
+                updateUploadProgressDisplay();
                 processUploadQueue();
             };
             
             xhr.ontimeout = function() {
                 clearInterval(tokenRefreshInterval);
                 showNotification(`Ошибка загрузки ${file.name}: Превышено время ожидания`, 'error');
+                uploadDoneBytes += file.size;
+                currentUploadLoaded = 0;
+                currentUploadTotal = 0;
+                currentUploadFile = null;
+                updateUploadProgressDisplay();
                 processUploadQueue();
             };
             
@@ -1070,121 +1187,95 @@
     }
     
     function showUploadProgress() {
-        let progressDiv = document.getElementById('uploadProgress');
-        if (!progressDiv) {
-            progressDiv = document.createElement('div');
-            progressDiv.id = 'uploadProgress';
-            progressDiv.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: white;
-                border: 1px solid #ccc;
-                border-radius: 5px;
-                padding: 15px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                z-index: 1000;
-                min-width: 400px;
-                max-height: 500px;
-                overflow-y: auto;
-            `;
-            document.body.appendChild(progressDiv);
-        }
+        // keep legacy div unused; new UI lives in TaskCenter
         updateUploadProgressDisplay();
     }
-    
+
     function updateUploadProgressDisplay() {
-        const progressDiv = document.getElementById('uploadProgress');
-        if (!progressDiv) return;
-        
-        let html = `<div style="margin-bottom: 10px; font-weight: bold;">Загрузка файлов</div>`;
-        
-        // Загруженные файлы
-        (window.uploadedFiles || []).forEach(file => {
-            html += `<div style="margin: 5px 0; font-size: 12px; display: flex; align-items: center;">
-                <span style="color: green; margin-right: 8px;">✓</span>
-                <span style="flex: 1; word-break: break-all;">${file}</span>
-            </div>`;
-        });
-        
-        // Текущий файл
-        if (isUploading && window.currentUploadFile) {
-            html += `<div style="margin: 5px 0; font-size: 12px; display: flex; align-items: center;">
-                <span style="color: #007acc; margin-right: 8px;">🔄</span>
-                <span style="flex: 1; word-break: break-all;">${window.currentUploadFile}</span>
-            </div>`;
-            html += `<div style="background: #f0f0f0; border-radius: 3px; overflow: hidden; margin: 5px 0;">
-                <div id="uploadProgressBar" style="background: #007acc; height: 20px; width: 0%; transition: width 0.3s;"></div>
-            </div>
-            <div id="uploadProgressText" style="text-align: center; margin-top: 5px; font-size: 12px;">0%</div>
-            <div id="uploadSpeedText" style="text-align: center; margin-top: 3px; font-size: 11px; color: #666;"></div>
-            <div id="uploadSizeText" style="text-align: center; margin-top: 3px; font-size: 11px; color: #666;"></div>`;
+        if (!window.TaskCenter || !window.TaskCenter.upsert) return;
+
+        const total = Math.max(1, uploadTotalBytes);
+        const done = uploadDoneBytes + currentUploadLoaded;
+        const pct = Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+
+        const lines = [];
+        const uploaded = (window.uploadedFiles || []);
+        uploaded.slice(-6).forEach(name => lines.push('✓ ' + name));
+
+        if (currentUploadFile) {
+            lines.push('↥ ' + currentUploadFile);
+            if (uploadSpeedLine) lines.push(uploadSpeedLine);
+            if (uploadSizeLine) lines.push(uploadSizeLine);
         }
-        
-        // Файлы в очереди
-        uploadQueue.forEach(item => {
-            html += `<div style="margin: 5px 0; font-size: 12px; display: flex; align-items: center;">
-                <span style="color: #666; margin-right: 8px;">⏳</span>
-                <span style="flex: 1; word-break: break-all;">${item.file.name}</span>
-            </div>`;
+
+        uploadQueue.slice(0, 6).forEach(item => lines.push('⏳ ' + item.file.name));
+
+        window.TaskCenter.upsert({
+            id: 'upload',
+            title: 'Загрузка на сервер',
+            subtitle: (uploaded.length + (currentUploadFile ? 1 : 0) + uploadQueue.length) + ' задач',
+            state: isUploading ? 'running' : (uploadQueue.length > 0 ? 'queued' : (uploaded.length > 0 ? 'done' : 'queued')),
+            percent: pct,
+            lines
         });
-        
-        progressDiv.innerHTML = html;
     }
-    
+
     function updateUploadProgress(percent, loaded, total, speed) {
-        const progressBar = document.getElementById('uploadProgressBar');
-        const progressText = document.getElementById('uploadProgressText');
-        const speedText = document.getElementById('uploadSpeedText');
-        const sizeText = document.getElementById('uploadSizeText');
-        
-        if (progressBar && progressText) {
-            progressBar.style.width = percent + '%';
-            progressText.textContent = Math.round(percent) + '%';
-            
-            if (speedText && speed > 0) {
-                let speedStr = '';
-                if (speed > 1024 * 1024) {
-                    speedStr = (speed / 1024 / 1024).toFixed(1) + ' MB/s';
-                } else if (speed > 1024) {
-                    speedStr = (speed / 1024).toFixed(1) + ' KB/s';
-                } else {
-                    speedStr = speed.toFixed(0) + ' B/s';
-                }
-                
-                // Расчет оставшегося времени
-                const remaining = total - loaded;
-                const timeLeft = remaining / speed;
-                let timeStr = '';
-                
-                if (timeLeft > 3600) {
-                    const hours = Math.floor(timeLeft / 3600);
-                    const minutes = Math.floor((timeLeft % 3600) / 60);
-                    timeStr = ` (осталось ${hours} ч. ${minutes} мин.)`;
-                } else if (timeLeft > 60) {
-                    const minutes = Math.floor(timeLeft / 60);
-                    const seconds = Math.floor(timeLeft % 60);
-                    timeStr = ` (осталось ${minutes} м. ${seconds} сек.)`;
-                } else if (timeLeft > 0) {
-                    timeStr = ` (осталось ${Math.ceil(timeLeft)} сек.)`;
-                }
-                
-                speedText.textContent = speedStr + timeStr;
+        currentUploadLoaded = loaded || 0;
+        currentUploadTotal = total || currentUploadTotal;
+
+        uploadSizeLine = `${formatFileSize(currentUploadLoaded)} / ${formatFileSize(currentUploadTotal || 0)}`;
+        uploadSpeedLine = '';
+        if (speed && speed > 0 && total) {
+            let speedStr = '';
+            if (speed > 1024 * 1024) {
+                speedStr = (speed / 1024 / 1024).toFixed(1) + ' MB/s';
+            } else if (speed > 1024) {
+                speedStr = (speed / 1024).toFixed(1) + ' KB/s';
+            } else {
+                speedStr = speed.toFixed(0) + ' B/s';
             }
-            
-            if (sizeText && loaded !== undefined && total !== undefined) {
-                sizeText.textContent = `${formatFileSize(loaded)} / ${formatFileSize(total)}`;
+
+            const remaining = total - loaded;
+            const timeLeft = remaining / speed;
+            let timeStr = '';
+            if (timeLeft > 3600) {
+                const hours = Math.floor(timeLeft / 3600);
+                const minutes = Math.floor((timeLeft % 3600) / 60);
+                timeStr = ` (осталось ${hours} ч. ${minutes} мин.)`;
+            } else if (timeLeft > 60) {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = Math.floor(timeLeft % 60);
+                timeStr = ` (осталось ${minutes} м. ${seconds} сек.)`;
+            } else if (timeLeft > 0) {
+                timeStr = ` (осталось ${Math.ceil(timeLeft)} сек.)`;
             }
+            uploadSpeedLine = speedStr + timeStr;
         }
+
+        updateUploadProgressDisplay();
     }
-    
+
     function hideUploadProgress() {
-        const progressDiv = document.getElementById('uploadProgress');
-        if (progressDiv) {
-            progressDiv.remove();
-        }
-        window.uploadedFiles = [];
-        window.currentUploadFile = null;
+        // Mark upload task as done and reset counters
+        uploadDoneBytes = uploadTotalBytes;
+        currentUploadLoaded = 0;
+        currentUploadTotal = 0;
+        currentUploadFile = null;
+        uploadSpeedLine = '';
+        uploadSizeLine = '';
+        updateUploadProgressDisplay();
+
+        // Reset totals after a short delay, keep task visible
+        setTimeout(() => {
+            uploadTotalBytes = 0;
+            uploadDoneBytes = 0;
+            window.uploadedFiles = [];
+            window.currentUploadFile = null;
+            if (window.TaskCenter && window.TaskCenter.update) {
+                window.TaskCenter.update('upload', { state: 'done', percent: 100 });
+            }
+        }, 2000);
     }
     
     function getTimeUntilExpiry(expiresAt) {
@@ -1744,7 +1835,11 @@
         const remainingGB = (quota.remaining / 1024 / 1024 / 1024).toFixed(2);
         
         $quotaProgress.style.width = percentage + '%';
-        $quotaText.textContent = `Осталось: ${remainingGB} GB / ${totalGB} GB`;
+        if (isMobileLayout()) {
+            $quotaText.textContent = `Осталось ${remainingGB} GB`;
+        } else {
+            $quotaText.textContent = `Осталось: ${remainingGB} GB / ${totalGB} GB`;
+        }
         
         // Цвет прогрессбара в зависимости от заполненности
         if (percentage < 70) {
@@ -1756,94 +1851,226 @@
         }
     }
 
-    // Функции множественного выделения
+    // Multi-selection
     window.toggleSelectAll = function() {
         const selectAllCheckbox = document.getElementById('selectAll');
-        const fileCheckboxes = document.querySelectorAll('.file-checkbox');
-        
-        fileCheckboxes.forEach(checkbox => {
-            checkbox.checked = selectAllCheckbox.checked;
-            toggleFileSelection(checkbox.closest('tr').dataset.fileId, checkbox);
+        const checkboxes = document.querySelectorAll('.file-checkbox');
+
+        checkboxes.forEach(cb => {
+            const row = cb.closest('tr');
+            if (!row) return;
+            const kind = row.dataset.itemKind;
+            const id = row.dataset.itemId;
+            if (!kind || !id) return;
+            cb.checked = selectAllCheckbox.checked;
+            toggleItemSelection(kind, id, cb);
         });
     };
-    
-    window.toggleFileSelection = function(fileId, checkbox) {
+
+    function toggleItemSelection(kind, id, checkbox) {
         const row = checkbox.closest('tr') || checkbox.closest('.file-item');
-        
+        const key = itemKey(kind, id);
+
         if (checkbox.checked) {
-            selectedFiles.add(fileId);
-            row.classList.add('selected');
+            selectedItems.add(key);
+            if (row) row.classList.add('selected');
         } else {
-            selectedFiles.delete(fileId);
-            row.classList.remove('selected');
+            selectedItems.delete(key);
+            if (row) row.classList.remove('selected');
         }
-        
+
         updateBulkActionsVisibility();
         updateSelectAllCheckbox();
-    };
-    
+    }
+
+    window.toggleItemSelection = toggleItemSelection;
+
     function updateBulkActionsVisibility() {
         const bulkActions = document.getElementById('bulkActions');
         const selectedCount = document.getElementById('selectedCount');
-        
-        if (selectedFiles.size > 0) {
+
+        if (selectedItems.size > 0) {
             bulkActions.style.display = 'flex';
-            selectedCount.textContent = selectedFiles.size;
+            selectedCount.textContent = String(selectedItems.size);
         } else {
             bulkActions.style.display = 'none';
         }
     }
-    
+
     function updateSelectAllCheckbox() {
         const selectAllCheckbox = document.getElementById('selectAll');
-        const fileCheckboxes = document.querySelectorAll('.file-checkbox');
-        const checkedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
-        
-        if (fileCheckboxes.length === 0) {
+        if (!selectAllCheckbox) return;
+        const checkboxes = document.querySelectorAll('.files-container .file-checkbox');
+        const checked = document.querySelectorAll('.files-container .file-checkbox:checked');
+
+        if (checkboxes.length === 0) {
             selectAllCheckbox.indeterminate = false;
             selectAllCheckbox.checked = false;
-        } else if (checkedCheckboxes.length === fileCheckboxes.length) {
+        } else if (checked.length === checkboxes.length) {
             selectAllCheckbox.indeterminate = false;
             selectAllCheckbox.checked = true;
-        } else if (checkedCheckboxes.length > 0) {
+        } else if (checked.length > 0) {
             selectAllCheckbox.indeterminate = true;
         } else {
             selectAllCheckbox.indeterminate = false;
             selectAllCheckbox.checked = false;
         }
     }
-    
+
     window.clearSelection = function() {
-        selectedFiles.clear();
-        document.querySelectorAll('.file-checkbox').forEach(checkbox => {
-            checkbox.checked = false;
+        selectedItems.clear();
+        document.querySelectorAll('.file-checkbox').forEach(cb => {
+            cb.checked = false;
         });
-        document.querySelectorAll('.file-row').forEach(row => {
-            row.classList.remove('selected');
-        });
-        document.querySelectorAll('.file-item').forEach(row => {
+        document.querySelectorAll('.file-row, .file-item').forEach(row => {
             row.classList.remove('selected');
         });
         updateBulkActionsVisibility();
         updateSelectAllCheckbox();
     };
-    
+
+    function startArchiveAndDownload(folderPath, fileName, title) {
+        const token = getAuthToken();
+        const body = new URLSearchParams();
+        body.append('token', token);
+        body.append('path', folderPath || '');
+        if (fileName) body.append('fileName', fileName);
+
+        const taskId = 'archive:' + (folderPath || 'root') + ':' + Date.now();
+        window.TaskCenter && window.TaskCenter.upsert && window.TaskCenter.upsert({
+            id: taskId,
+            title: title || 'Архивация',
+            subtitle: fileName || '',
+            state: 'queued',
+            percent: 0,
+            lines: []
+        });
+
+        fetch('/api/files/archive', { method: 'POST', body })
+            .then(r => r.json().then(j => ({ ok: r.ok, j })))
+            .then(({ ok, j }) => {
+                if (!ok) throw new Error((j && j.error) ? j.error : 'Ошибка архивации');
+                const jobId = j.jobId;
+                if (window.TaskCenter && window.TaskCenter.update && taskId) {
+                    window.TaskCenter.update(taskId, { state: 'running', lines: ['job ' + jobId] });
+                }
+
+                const poll = setInterval(() => {
+                    fetch(`/api/files/archive/status?token=${encodeURIComponent(token)}&jobId=${encodeURIComponent(jobId)}`)
+                        .then(r2 => r2.json().then(j2 => ({ ok: r2.ok, j2 })))
+                        .then(({ ok: ok2, j2 }) => {
+                            if (!ok2) throw new Error((j2 && j2.error) ? j2.error : 'Ошибка статуса');
+                            if (window.TaskCenter && window.TaskCenter.update && taskId) {
+                                window.TaskCenter.update(taskId, {
+                                    state: j2.state,
+                                    percent: typeof j2.percent === 'number' ? j2.percent : 0,
+                                    lines: j2.message ? [j2.message] : []
+                                });
+                            }
+
+                            if (j2.state === 'done') {
+                                clearInterval(poll);
+                                const url = `/api/files/archive/download?token=${encodeURIComponent(token)}&jobId=${encodeURIComponent(jobId)}`;
+
+                                if (window.TaskCenter && window.TaskCenter.update && taskId) {
+                                    window.TaskCenter.update(taskId, {
+                                        state: 'done',
+                                        percent: 100,
+                                        downloadUrl: url,
+                                        meta: { type: 'archive', jobId }
+                                    });
+                                }
+
+                                // Desktop best-effort auto download (mobile browsers may block)
+                                if (!isMobileLayout()) {
+                                    try { window.open(url); } catch {}
+                                }
+                            }
+                            if (j2.state === 'error') {
+                                clearInterval(poll);
+                            }
+                        })
+                        .catch(err => {
+                            clearInterval(poll);
+                            if (window.TaskCenter && window.TaskCenter.update && taskId) {
+                                window.TaskCenter.update(taskId, { state: 'error', lines: [String(err.message || err)] });
+                            }
+                        });
+                }, 800);
+            })
+            .catch(err => {
+                if (window.TaskCenter && window.TaskCenter.update && taskId) {
+                    window.TaskCenter.update(taskId, { state: 'error', lines: [String(err.message || err)] });
+                }
+                showNotification('Ошибка архивации: ' + (err.message || err), 'error');
+            });
+    }
+
+    window.downloadCurrentFolder = function() {
+        if (isInTrash) return;
+        const base = currentPath ? currentPath.split('/').pop() : ($who.textContent || 'user');
+        const name = base + '_' + formatTimestamp() + '.zip';
+        startArchiveAndDownload(currentPath, name, 'Архив папки');
+    };
+
+    window.downloadFolderArchive = function(folderPath) {
+        if (isInTrash) return;
+        const base = folderPath ? folderPath.split('/').pop() : ($who.textContent || 'user');
+        const name = base + '_' + formatTimestamp() + '.zip';
+        startArchiveAndDownload(folderPath, name, 'Архив папки');
+    };
+
+    window.bulkDownload = function() {
+        const files = selectedByKind('file');
+        const folders = selectedByKind('folder');
+        if (files.length === 0 && folders.length === 0) return;
+
+        // files: start downloads immediately
+        files.forEach(fileId => {
+            downloadFile(fileId);
+            if (window.TaskCenter && window.TaskCenter.upsert) {
+                window.TaskCenter.upsert({
+                    id: 'download:' + fileId + ':' + Date.now(),
+                    title: 'Скачивание',
+                    subtitle: fileId.split('/').pop(),
+                    state: 'done',
+                    percent: 100,
+                    lines: ['Запущено']
+                });
+            }
+        });
+
+        // folders: zip per folder
+        folders.forEach(folderPath => {
+            const folderName = folderPath.split('/').pop();
+            const parentName = currentPath ? currentPath.split('/').pop() : ($who.textContent || 'user');
+            const zipName = parentName + '_' + folderName + '_' + formatTimestamp() + '.zip';
+            startArchiveAndDownload(folderPath, zipName, 'Архив папки');
+        });
+    };
+
     window.bulkMove = function() {
-        if (selectedFiles.size === 0) return;
-        
-        document.getElementById('moveFileName').textContent = `Переместить ${selectedFiles.size} файлов:`;
-        
+        const files = selectedByKind('file');
+        const folders = selectedByKind('folder');
+        if (files.length === 0) {
+            showNotification('Для перемещения выберите файлы', 'warning');
+            return;
+        }
+        if (folders.length > 0) {
+            showNotification('Папки не перемещаются группой (будут проигнорированы)', 'warning');
+        }
+
+        document.getElementById('moveFileName').textContent = `Переместить ${files.length} файлов:`;
+
         const folderTree = document.getElementById('folderTree');
         folderTree.innerHTML = '';
-        
-        // Корень
+
         const rootItem = document.createElement('div');
         rootItem.className = 'folder-item selected';
         rootItem.textContent = '🏠 Хранилище';
         rootItem.onclick = () => selectTargetFolder('', rootItem);
         folderTree.appendChild(rootItem);
-        
-        // Папки
+
         allFolders.forEach(folder => {
             const item = document.createElement('div');
             item.className = 'folder-item';
@@ -1853,82 +2080,78 @@
             item.onclick = () => selectTargetFolder(folder, item);
             folderTree.appendChild(item);
         });
-        
+
         selectedTargetFolder = '';
         selectedMoveFile = 'bulk';
+        window._bulkMoveFileIds = files;
         document.getElementById('moveModal').style.display = 'block';
     };
-    
+
     window.bulkDelete = function() {
-        if (selectedFiles.size === 0) return;
-        
-        showConfirm(`Переместить ${selectedFiles.size} файлов в корзину?`, () => {
+        const files = selectedByKind('file');
+        const folders = selectedByKind('folder');
+        const total = files.length + folders.length;
+        if (total === 0) return;
+
+        showConfirm(`Переместить ${total} элементов в корзину?`, () => {
             const token = getAuthToken();
-            const promises = Array.from(selectedFiles).map(fileId => 
-                fetch(`/api/files/delete?id=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, {
-                    method: 'DELETE'
-                })
-            );
-            
+            const promises = [];
+            files.forEach(fileId => {
+                promises.push(fetch(`/api/files/delete?id=${encodeURIComponent(fileId)}&token=${encodeURIComponent(token)}`, { method: 'DELETE' }));
+            });
+            folders.forEach(folderPath => {
+                promises.push(fetch(`/api/files/folder?path=${encodeURIComponent(folderPath)}&token=${encodeURIComponent(token)}`, { method: 'DELETE' }));
+            });
+
             Promise.all(promises.map(p => p.catch(e => ({ error: true, message: e.message }))))
                 .then(responses => {
                     const failed = responses.filter(r => !r.ok && r.error !== true);
-                    const alreadyInTrash = responses.filter(r => r.error && r.message && r.message.includes('уже есть в корзине'));
                     const success = responses.filter(r => r.ok);
-                    
                     if (success.length > 0) {
-                        showNotification(`${success.length} файлов перемещено в корзину`, 'success');
+                        showNotification(`${success.length} элементов перемещено в корзину`, 'success');
                     }
-                    
-                    if (alreadyInTrash.length > 0) {
-                        showNotification(`${alreadyInTrash.length} файлов не удалено - уже есть в корзине`, 'warning');
-                    }
-                    
                     if (failed.length > 0) {
-                        showNotification(`Ошибка удаления ${failed.length} файлов`, 'error');
+                        showNotification(`Ошибка удаления ${failed.length} элементов`, 'error');
                     }
-                    
+
                     clearSelection();
                     loadFiles();
                 })
-                .catch(e => {
-                    showNotification('Ошибка: ' + e.message, 'error');
-                });
+                .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
         });
     };
-    
-    // Обновляем confirmMove для поддержки группового перемещения
+
+    // confirmMove support for bulk move (files only)
     const originalConfirmMove = window.confirmMove;
     window.confirmMove = function() {
         if (selectedMoveFile === 'bulk') {
-            if (selectedFiles.size === 0) return;
-            
+            const files = window._bulkMoveFileIds || selectedByKind('file');
+            if (files.length === 0) return;
+
             const token = getAuthToken();
-            const promises = Array.from(selectedFiles).map(fileId => 
+            const promises = files.map(fileId =>
                 fetch(`/api/files/move?fileId=${encodeURIComponent(fileId)}&targetFolder=${encodeURIComponent(selectedTargetFolder)}&token=${encodeURIComponent(token)}`, {
                     method: 'POST'
                 })
             );
-            
+
             Promise.all(promises.map(p => p.then(r => r.json().catch(() => ({}))).catch(() => ({ error: true }))))
                 .then(results => {
                     const failed = results.filter(r => r.error);
                     const renamed = results.filter(r => r.renamed);
-                    
+
                     if (failed.length > 0) {
                         showNotification(`Ошибка перемещения ${failed.length} файлов`, 'error');
                     } else if (renamed.length > 0) {
-                        showNotification(`${selectedFiles.size} файлов перемещено, ${renamed.length} переименовано`, 'warning');
+                        showNotification(`${files.length} файлов перемещено, ${renamed.length} переименовано`, 'warning');
                     } else {
-                        showNotification(`${selectedFiles.size} файлов успешно перемещено`, 'success');
+                        showNotification(`${files.length} файлов успешно перемещено`, 'success');
                     }
                     clearSelection();
                     loadFiles();
                 })
-                .catch(e => {
-                    showNotification('Ошибка: ' + e.message, 'error');
-                });
-            
+                .catch(e => showNotification('Ошибка: ' + e.message, 'error'));
+
             closeMoveModal();
         } else {
             originalConfirmMove();
