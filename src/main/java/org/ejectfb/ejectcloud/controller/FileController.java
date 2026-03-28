@@ -7,7 +7,11 @@ import org.ejectfb.ejectcloud.service.ArchiveService;
 import org.ejectfb.ejectcloud.service.JwtService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.*;
+import org.springframework.http.converter.ResourceRegionHttpMessageConverter;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.slf4j.Logger;
@@ -20,6 +24,9 @@ import java.io.*;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -53,6 +60,28 @@ public class FileController {
             throw new RuntimeException("Недействительный токен");
         }
         throw new RuntimeException("Недействительный токен");
+    }
+
+    private Path safeResolveUserFile(String userId, String fileId) {
+        if (fileId == null) {
+            throw new IllegalStateException("fileId is required");
+        }
+
+        if (fileId.contains("..") || fileId.contains("\\") || fileId.startsWith("/") || fileId.startsWith("\\")) {
+            throw new IllegalStateException("Invalid fileId");
+        }
+
+        Path dataDir = storageService.getDataDir(userId).toAbsolutePath().normalize();
+        Path p;
+        try {
+            p = dataDir.resolve(fileId).normalize();
+        } catch (InvalidPathException e) {
+            throw new IllegalStateException("Invalid fileId");
+        }
+        if (!p.startsWith(dataDir)) {
+            throw new IllegalStateException("Invalid fileId");
+        }
+        return p;
     }
 
     @PostMapping("/upload")
@@ -207,7 +236,7 @@ public class FileController {
                 return ResponseEntity.notFound().build();
             }
             
-            Path filePath = storageService.getFilePath(userId, fileId);
+            Path filePath = safeResolveUserFile(userId, fileId);
             if (!java.nio.file.Files.exists(filePath)) {
                 return ResponseEntity.notFound().build();
             }
@@ -227,6 +256,193 @@ public class FileController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body("Ошибка скачивания файла: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/info")
+    public ResponseEntity<?> fileInfo(@RequestParam String fileId, @RequestParam String token) {
+        try {
+            String userId = requireUserId(token);
+            FileData fileData = storageService.listFiles(userId)
+                .stream()
+                .filter(f -> f.getId().equals(fileId))
+                .findFirst()
+                .orElse(null);
+
+            if (fileData == null) {
+                return ResponseEntity.notFound().build();
+            }
+
+            Path filePath = safeResolveUserFile(userId, fileId);
+            if (!Files.exists(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            String contentType = Files.probeContentType(filePath);
+            if (contentType == null) {
+                contentType = MediaTypeFactory.getMediaType(filePath.getFileName().toString())
+                    .map(MediaType::toString)
+                    .orElse("application/octet-stream");
+            }
+
+            return ResponseEntity.ok(java.util.Map.of(
+                "id", fileData.getId(),
+                "filename", fileData.getFilename(),
+                "size", fileData.getSizeBytes(),
+                "uploadedAt", fileData.getUploadedAt(),
+                "contentType", contentType
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/view")
+    public ResponseEntity<?> viewInline(@RequestParam String fileId, @RequestParam String token, @RequestHeader HttpHeaders headers) {
+        try {
+            String userId = requireUserId(token);
+            Path filePath = safeResolveUserFile(userId, fileId);
+            if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            Resource resource = new FileSystemResource(filePath);
+            long len = Files.size(filePath);
+            MediaType mt = MediaTypeFactory.getMediaType(resource).orElse(MediaType.APPLICATION_OCTET_STREAM);
+
+            // Avoid executing HTML/SVG/etc in preview: if looks like HTML/SVG, force octet-stream.
+            String mtStr = mt.toString();
+            if (mtStr.startsWith("text/html") || mtStr.contains("svg") || mtStr.contains("xml")) {
+                mt = MediaType.APPLICATION_OCTET_STREAM;
+            }
+
+            String filename = filePath.getFileName().toString();
+            String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8).replaceAll("\\+", "%20");
+
+            // Range support (important for video)
+            List<HttpRange> ranges = headers.getRange();
+            if (ranges != null && !ranges.isEmpty()) {
+                HttpRange range = ranges.get(0);
+                long start = range.getRangeStart(len);
+                long end = range.getRangeEnd(len);
+                long rangeLen = Math.min(1 + end - start, len);
+                org.springframework.core.io.support.ResourceRegion region = new org.springframework.core.io.support.ResourceRegion(resource, start, rangeLen);
+
+                return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename*=UTF-8''" + encodedFilename)
+                    .header("Accept-Ranges", "bytes")
+                    .header("X-Content-Type-Options", "nosniff")
+                    .contentType(mt)
+                    .body(region);
+            }
+
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename*=UTF-8''" + encodedFilename)
+                .header("Accept-Ranges", "bytes")
+                .header("X-Content-Type-Options", "nosniff")
+                .contentType(mt)
+                .contentLength(len)
+                .body(resource);
+        } catch (Exception e) {
+            log.warn("[view] inline error fileId='{}' msg={}", fileId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", "text/plain; charset=UTF-8")
+                .body("Error: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/text")
+    public ResponseEntity<?> viewText(@RequestParam String fileId, @RequestParam String token) {
+        try {
+            String userId = requireUserId(token);
+            Path filePath = safeResolveUserFile(userId, fileId);
+            if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            long len = Files.size(filePath);
+            long max = 2L * 1024L * 1024L; // 2MB
+            if (len > max) {
+                return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                    .header("Content-Type", "text/plain; charset=UTF-8")
+                    .body("File is too large for preview");
+            }
+
+            byte[] bytes = Files.readAllBytes(filePath);
+
+            // Basic binary sniffing: reject if contains NUL or too few printable chars
+            if (!isProbablyText(bytes)) {
+                return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                    .header("Content-Type", "text/plain; charset=UTF-8")
+                    .body("Binary file preview is not supported");
+            }
+
+            String text = decodeText(bytes);
+
+            return ResponseEntity.ok()
+                .header("X-Content-Type-Options", "nosniff")
+                .contentType(MediaType.parseMediaType("text/plain; charset=UTF-8"))
+                .body(text);
+        } catch (Exception e) {
+            log.warn("[view] text error fileId='{}' msg={}", fileId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", "text/plain; charset=UTF-8")
+                .body("Error: " + e.getMessage());
+        }
+    }
+
+    private static boolean isProbablyText(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return true;
+        int n = Math.min(bytes.length, 64 * 1024);
+        int control = 0;
+        for (int i = 0; i < n; i++) {
+            int b = bytes[i] & 0xFF;
+            if (b == 0x00) return false;
+            // allowed whitespace controls
+            if (b == 0x09 || b == 0x0A || b == 0x0D) {
+                continue;
+            }
+            // count other control chars as binary-ish
+            if (b < 0x20 || b == 0x7F) {
+                control++;
+            }
+        }
+        double controlRatio = (double) control / (double) n;
+        return controlRatio <= 0.02;
+    }
+
+    private static String decodeText(byte[] bytes) {
+        if (bytes.length >= 2) {
+            // UTF-16 BOM
+            if ((bytes[0] == (byte)0xFF && bytes[1] == (byte)0xFE)) {
+                return new String(bytes, java.nio.charset.StandardCharsets.UTF_16LE);
+            }
+            if ((bytes[0] == (byte)0xFE && bytes[1] == (byte)0xFF)) {
+                return new String(bytes, java.nio.charset.StandardCharsets.UTF_16BE);
+            }
+        }
+
+        if (bytes.length >= 3) {
+            // UTF-8 BOM
+            if ((bytes[0] == (byte)0xEF && bytes[1] == (byte)0xBB && bytes[2] == (byte)0xBF)) {
+                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            }
+        }
+
+        try {
+            var dec = java.nio.charset.StandardCharsets.UTF_8.newDecoder();
+            dec.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
+            dec.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+            return dec.decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+        } catch (Exception ignored) {
+            // fallback: common Windows Cyrillic encoding
+            try {
+                return new String(bytes, java.nio.charset.Charset.forName("windows-1251"));
+            } catch (Exception ignored2) {
+                return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+            }
         }
     }
 

@@ -190,6 +190,7 @@
             addActionButton('🗑️ Удалить папку', 'danger', () => deleteFolder(id));
         } else {
             // file
+            addActionButton('👁️ Предпросмотр', 'secondary', () => openPreview(id));
             addActionButton('⬇️ Скачать', 'primary', () => downloadFile(id));
             addActionButton('🔗 Поделиться/скопировать ссылку', 'secondary', () => shareFile(id));
 
@@ -206,6 +207,13 @@
 
         $actionsModal.style.display = 'block';
     };
+
+    function openPreview(fileId) {
+        const returnTo = window.location.pathname + window.location.search;
+        window.location.href = `/preview.html?fileId=${encodeURIComponent(fileId)}&returnTo=${encodeURIComponent(returnTo)}`;
+    }
+
+    window.openPreview = openPreview;
 
     function renderMobileList({ parentNavigate, folders, files, inTrashMode, append = false }) {
         if (!$filesList) return;
@@ -311,15 +319,8 @@
             `;
 
             item.querySelector('.file-title').onclick = () => {
-                openItemActions('file', fileId);
+                openPreview(fileId);
             };
-
-            item.addEventListener('click', (e) => {
-                const t = e.target;
-                if (t && (t.tagName === 'INPUT' || t.tagName === 'BUTTON')) return;
-                // allow tapping row to open the same menu
-                openItemActions('file', fileId);
-            });
 
             const metaLink = item.querySelector('.file-meta span[title="Копировать ссылку"]');
             if (metaLink) {
@@ -930,6 +931,9 @@
             // Название файла
             const nameCell = row.insertCell();
             nameCell.textContent = `📄 ${fileName}`;
+            nameCell.style.cursor = 'pointer';
+            nameCell.title = 'Предпросмотр';
+            nameCell.onclick = () => openPreview(file.id);
             
             // Размер
             const sizeCell = row.insertCell();
@@ -959,6 +963,7 @@
             actionsCell.innerHTML = `
                 <div class="action-buttons">
                     <button onclick="downloadFile('${file.id}')" class="primary" title="Скачать">⬇️</button>
+                    <button onclick="openPreview('${file.id}')" class="secondary" title="Предпросмотр">👁️</button>
                     <button onclick="shareFile('${file.id}')" class="secondary" title="Поделиться">🔗</button>
                     <button onclick="renameFile('${file.id}')" class="secondary" title="Переименовать">✏️</button>
                     <button onclick="moveFileDialog('${file.id}')" class="secondary" title="Переместить">📁</button>
